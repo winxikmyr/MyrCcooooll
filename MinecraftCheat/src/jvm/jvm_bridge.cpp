@@ -6504,6 +6504,7 @@ void JVMBridge::SetPlayerRotation(float yaw, float pitch) {
                 if (fPrevRenderYawOffset) env->SetFloatField(player, fPrevRenderYawOffset, yaw);
 
                 // Также мгновенно обновляем углы камеры в RenderManager mc.renderManager (bzf)
+                // В Minecraft 1.12.2: playerViewX = "e" (Pitch), playerViewY = "f" (Yaw)
                 jobject cl = GetMinecraftClassLoader(env);
                 jclass cRM = FindMCClass(env, cl, "bzf");
                 if (!cRM) cRM = FindMCClass(env, cl, "net/minecraft/client/renderer/entity/RenderManager");
@@ -6512,10 +6513,14 @@ void JVMBridge::SetPlayerRotation(float yaw, float pitch) {
                 if (fRM && cRM) {
                     jobject rmObj = env->GetObjectField(mc, fRM);
                     if (rmObj && !env->ExceptionCheck()) {
-                        jfieldID fRMYaw = env->GetFieldID(cRM, "e", "F");
+                        jfieldID fRMYaw = env->GetFieldID(cRM, "f", "F");
                         if (!fRMYaw) { env->ExceptionClear(); fRMYaw = env->GetFieldID(cRM, "playerViewY", "F"); }
-                        jfieldID fRMPitch = env->GetFieldID(cRM, "f", "F");
+                        if (!fRMYaw) { env->ExceptionClear(); fRMYaw = env->GetFieldID(cRM, "field_78735_i", "F"); }
+
+                        jfieldID fRMPitch = env->GetFieldID(cRM, "e", "F");
                         if (!fRMPitch) { env->ExceptionClear(); fRMPitch = env->GetFieldID(cRM, "playerViewX", "F"); }
+                        if (!fRMPitch) { env->ExceptionClear(); fRMPitch = env->GetFieldID(cRM, "field_78732_a", "F"); }
+
                         if (fRMYaw) env->SetFloatField(rmObj, fRMYaw, yaw);
                         if (fRMPitch) env->SetFloatField(rmObj, fRMPitch, pitch);
                         env->DeleteLocalRef(rmObj);

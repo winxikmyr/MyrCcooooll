@@ -922,8 +922,10 @@ void GUIManager::Render(HDC hdc) {
                 aim->hasTarget = false;
                 aim->ticks = 0;
             } else {
+                double myEyeX = (mcData.playerPos.x != 0.0) ? mcData.playerPos.x : mcData.camPos.x;
                 double myFeetY = (mcData.playerPos.y != 0.0) ? mcData.playerPos.y : (mcData.camPos.y - 1.62);
-                BloodAim::Point playerPos{ mcData.camPos.x, myFeetY, mcData.camPos.z };
+                double myEyeZ = (mcData.playerPos.z != 0.0) ? mcData.playerPos.z : mcData.camPos.z;
+                BloodAim::Point playerPos{ myEyeX, myFeetY, myEyeZ };
                 float eyeHeight = 1.62f;
                 float yaw = mcData.camYaw;
                 float pitch = mcData.camPitch;
@@ -939,11 +941,13 @@ void GUIManager::Render(HDC hdc) {
                     std::string realName = pl.realName.empty() ? pl.name : pl.realName;
                     if (FriendManager::Get().IsFriend(realName)) continue;
                     if (pl.health <= 0.0f) continue;
-                    if (!aim->bots && (pl.isBot || pl.name == "Zombie" || pl.realName == "Zombie")) continue;
+                    if (aim->bots && (pl.isBot || pl.name.find("[NPC]") != std::string::npos || pl.name.find("[npc]") != std::string::npos)) continue;
                     if (!aim->walls && !pl.canBeSeen && pl.distance > 3.5f) continue;
 
                     // Точь-в-точь выбор цели по MouseDistance из NoDesynce:
-                    BloodAim::Point targetPos{ pl.pos.x, pl.pos.y, pl.pos.z };
+                    BloodAim::Point targetPos = (pl.pos.x != 0.0 || pl.pos.z != 0.0)
+                        ? BloodAim::Point{ pl.pos.x, pl.pos.y, pl.pos.z }
+                        : BloodAim::Point{ pl.rawPos.x, pl.rawPos.y, pl.rawPos.z };
                     float score = BloodAim::MouseDistance(targetPos, playerPos, eyeHeight, yaw, pitch);
 
                     if (score <= aim->fov && score < bestScore) {
@@ -956,9 +960,15 @@ void GUIManager::Render(HDC hdc) {
                     aim->hasTarget = true;
                     aim->ticks++;
 
-                    BloodAim::Point position{ bestTarget->rawPos.x, bestTarget->rawPos.y, bestTarget->rawPos.z };
-                    BloodAim::Point lastRender{ bestTarget->lastRender.x, bestTarget->lastRender.y, bestTarget->lastRender.z };
-                    BloodAim::Point previousTick{ bestTarget->prevTick.x, bestTarget->prevTick.y, bestTarget->prevTick.z };
+                    BloodAim::Point position = (bestTarget->rawPos.x != 0.0 || bestTarget->rawPos.z != 0.0)
+                        ? BloodAim::Point{ bestTarget->rawPos.x, bestTarget->rawPos.y, bestTarget->rawPos.z }
+                        : BloodAim::Point{ bestTarget->pos.x, bestTarget->pos.y, bestTarget->pos.z };
+                    BloodAim::Point lastRender = (bestTarget->lastRender.x != 0.0 || bestTarget->lastRender.z != 0.0)
+                        ? BloodAim::Point{ bestTarget->lastRender.x, bestTarget->lastRender.y, bestTarget->lastRender.z }
+                        : position;
+                    BloodAim::Point previousTick = (bestTarget->prevTick.x != 0.0 || bestTarget->prevTick.z != 0.0)
+                        ? BloodAim::Point{ bestTarget->prevTick.x, bestTarget->prevTick.y, bestTarget->prevTick.z }
+                        : position;
 
                     double partial = mcData.timerPartialTicks > 0.0f ? mcData.timerPartialTicks : 1.0;
 

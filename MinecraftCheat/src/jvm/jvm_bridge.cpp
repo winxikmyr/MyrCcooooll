@@ -2508,7 +2508,10 @@ static bool QueryItemSpriteUV(JNIEnv* env, jobject mc, jobject itemStack, float&
         } else if (env->ExceptionCheck()) env->ExceptionClear();
     }
 
-    // СПОСОБ 2 (Fallback): Если getParticleTexture() не найден или не дал UV, проверяем квады модели
+    // СПОСОБ 2 (Fallback): Если getParticleTexture() не найден или missingno, проверяем квады модели
+    // ВАЖНО: Ищем ТОЛЬКО полный TextureAtlasSprite из quad.getSprite() (bvp.a() в 1.12.2).
+    // Чтение сырых UV из int[] vertexData строго ЗАПРЕЩЕНО, т.к. у 3D моделей (шлемы, броня)
+    // оно берет полигон одной грани куба и режет иконку на уродливые полосы (как в HUD/ESP)!
     if (!foundUV) {
         jmethodID mGetQuads = env->GetMethodID(cModel, "a", "(Lawt;Lfa;J)Ljava/util/List;");
         if (!mGetQuads && env->ExceptionCheck()) {
@@ -2534,7 +2537,7 @@ static bool QueryItemSpriteUV(JNIEnv* env, jobject mc, jobject itemStack, float&
 
                 jclass cQuad = env->GetObjectClass(quad);
 
-                // Способ 2.1: Сначала пробуем получить полный TextureAtlasSprite из quad (bvp.a() в 1.12.2)
+                // Получаем полный TextureAtlasSprite из quad (bvp.a() в 1.12.2)
                 jobject qSprite = nullptr;
                 const char* spriteMethods[] = { "a", "d", "getSprite", "func_187508_a", "e" };
                 const char* spriteSigs[] = { "()Lcdq;", "()Lcdt;", "()Lnet/minecraft/client/renderer/texture/TextureAtlasSprite;" };
@@ -2585,65 +2588,6 @@ static bool QueryItemSpriteUV(JNIEnv* env, jobject mc, jobject itemStack, float&
                     }
                     env->DeleteLocalRef(cSp);
                     env->DeleteLocalRef(qSprite);
-                }
-
-                // Способ 2.2: Если TextureAtlasSprite недоступен, читаем UV из int[] vertexData (bvp.b() в 1.12.2)
-                if (!foundUV) {
-                    jmethodID mVData = env->GetMethodID(cQuad, "b", "()[I");
-                    if (!mVData) { env->ExceptionClear(); mVData = env->GetMethodID(cQuad, "a", "()[I"); }
-                    if (!mVData) { env->ExceptionClear(); mVData = env->GetMethodID(cQuad, "getVertexData", "()[I"); }
-                    if (!mVData) { env->ExceptionClear(); mVData = env->GetMethodID(cQuad, "func_178209_a", "()[I"); }
-
-                    jintArray vArr = nullptr;
-                    if (mVData) {
-                        vArr = reinterpret_cast<jintArray>(env->CallObjectMethod(quad, mVData));
-                        if (env->ExceptionCheck()) { env->ExceptionClear(); vArr = nullptr; }
-                    }
-                    if (!vArr) {
-                        jfieldID fVData = env->GetFieldID(cQuad, "a", "[I");
-                        if (!fVData) { env->ExceptionClear(); fVData = env->GetFieldID(cQuad, "vertexData", "[I"); }
-                        if (!fVData) { env->ExceptionClear(); fVData = env->GetFieldID(cQuad, "field_178215_a", "[I"); }
-                        if (fVData) {
-                            vArr = reinterpret_cast<jintArray>(env->GetObjectField(quad, fVData));
-                            if (env->ExceptionCheck()) { env->ExceptionClear(); vArr = nullptr; }
-                        }
-                    }
-
-                    if (vArr) {
-                        jsize vLen = env->GetArrayLength(vArr);
-                        if (vLen >= 28) {
-                            jint* rawInts = env->GetIntArrayElements(vArr, nullptr);
-                            if (rawInts) {
-                                float u0 = *reinterpret_cast<float*>(&rawInts[4]);
-                                float v0 = *reinterpret_cast<float*>(&rawInts[5]);
-                                float u1 = *reinterpret_cast<float*>(&rawInts[11]);
-                                float v1 = *reinterpret_cast<float*>(&rawInts[12]);
-                                float u2 = *reinterpret_cast<float*>(&rawInts[18]);
-                                float v2 = *reinterpret_cast<float*>(&rawInts[19]);
-                                float u3 = *reinterpret_cast<float*>(&rawInts[25]);
-                                float v3 = *reinterpret_cast<float*>(&rawInts[26]);
-
-                                float qMinU = std::min({u0, u1, u2, u3});
-                                float qMaxU = std::max({u0, u1, u2, u3});
-                                float qMinV = std::min({v0, v1, v2, v3});
-                                float qMaxV = std::max({v0, v1, v2, v3});
-
-                                env->ReleaseIntArrayElements(vArr, rawInts, JNI_ABORT);
-
-                                float spanU = qMaxU - qMinU;
-                                float spanV = qMaxV - qMinV;
-                                // Отфильтровываем микро-квады от 3D моделей (их UV занимают < 1.5% атласа)
-                                // Только реальные 2D иконки имеют достаточно большой UV-span
-                                if (spanU >= 0.015f && spanV >= 0.015f &&
-                                    qMinU >= -0.01f && qMaxU <= 1.01f && qMinV >= -0.01f && qMaxV <= 1.01f) {
-                                    bestMinU = qMinU; bestMaxU = qMaxU;
-                                    bestMinV = qMinV; bestMaxV = qMaxV;
-                                    foundUV = true;
-                                }
-                            }
-                        }
-                        env->DeleteLocalRef(vArr);
-                    }
                 }
 
                 env->DeleteLocalRef(cQuad);
@@ -3096,13 +3040,27 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
 
         std::string spLower = CleanAndLower(spFound);
 
-        // Определяем подлинное имя предмета по найденному спрайту модели, если имя замаскировано ("sosihuy")
+        // Определяем подлинное имя предмета по найденному спрайту модели, если имя замаскировано ("sosihuy" или "hatchetIron")
         std::string effectiveName = out.name;
         std::string rawLowerName = CleanAndLower(out.name);
-        if (effectiveName.empty() || isMasked || rawLowerName.find("sosi") != std::string::npos || rawLowerName.find("huy") != std::string::npos) {
-            if (spLower.find("wood") != std::string::npos || spLower.find("log") != std::string::npos) effectiveName = "Wood";
+        bool needsTrueName = effectiveName.empty() || isMasked ||
+                             rawLowerName.find("sosi") != std::string::npos ||
+                             rawLowerName.find("huy") != std::string::npos ||
+                             rawLowerName.find("hatchetiron") != std::string::npos;
+
+        if (needsTrueName && !spLower.empty() && spLower != "missingno") {
+            if (spLower.find("bone_club") != std::string::npos || spLower.find("club") != std::string::npos) effectiveName = "Bone Club";
+            else if (spLower.find("knife_bone") != std::string::npos || spLower.find("bone_knife") != std::string::npos) effectiveName = "Bone Knife";
+            else if (spLower.find("bone") != std::string::npos) effectiveName = "Bone";
+            else if (spLower.find("wood") != std::string::npos || spLower.find("log") != std::string::npos) effectiveName = "Wood";
             else if (spLower.find("rock") != std::string::npos || spLower.find("stone") != std::string::npos) effectiveName = "Stone";
             else if (spLower.find("cloth") != std::string::npos) effectiveName = "Cloth";
+            else if (spLower.find("meat") != std::string::npos) effectiveName = "Meat";
+            else if (spLower.find("fat") != std::string::npos) effectiveName = "Fat";
+            else if (spLower.find("headwrap") != std::string::npos) effectiveName = "Headwrap";
+            else if (spLower.find("trousers") != std::string::npos || spLower.find("pants") != std::string::npos) effectiveName = "Pants";
+            else if (spLower.find("shirt") != std::string::npos || spLower.find("jacket") != std::string::npos) effectiveName = "Shirt";
+            else if (spLower.find("shoes") != std::string::npos || spLower.find("boots") != std::string::npos) effectiveName = "Shoes";
             else if (spLower.find("apple") != std::string::npos) effectiveName = "Apple";
             else if (spLower.find("berry") != std::string::npos) effectiveName = "Berry";
             else if (spLower.find("sulfur") != std::string::npos) effectiveName = "Sulfur";
@@ -3129,47 +3087,24 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
         // В Minecraft (включая OptiFine CIT и любые текстур-паки) RenderItem возвращает:
         // - Модель и текстуру из РП (если применен ресурс-пак)
         // - Модель и текстуру ваниллы (если ресурс-пак выключен или не заменяет этот предмет)
-        //
-        // 2. Если предмет кастомный (CUSTOM_ITEM_IDS или маскирован или не совпадает с моделью),
-        // проверяем наличие кастомной текстуры в ресурс-паке (QueryResourcePackSprite).
-        //
-        // 3. Если кастомной иконки в РП нет, но QueryItemSpriteUV дал валидный UV:
-        // ВСЕГДА используем UV из модели (текстура РП или ванилла)!
-        //
-        // 4. Если модель не дала UV (или missingno):
-        // Проверяем QueryResourcePackSprite -> затем GetGeneralItemSpriteName / GetVanillaItemSpriteNameById.
-
         bool iconResolved = false;
         float rU1 = 0.f, rU2 = 0.f, rV1 = 0.f, rV2 = 0.f;
 
-        // 1. Проверяем, не является ли предмет кастомным сервером RustEx с кастомной иконкой в РП (icons/...)
-        bool isCustomServerItem = (CUSTOM_ITEM_IDS.count(out.itemId) > 0) || isMasked;
-        if (!isCustomServerItem && !spLower.empty() && spLower != "missingno") {
-            std::string nLow = CleanAndLower(out.name);
-            if ((nLow.find("копь") != std::string::npos || nLow.find("spear") != std::string::npos) && spLower.find("spear") == std::string::npos) isCustomServerItem = true;
-            else if ((nLow.find("лук") != std::string::npos || nLow.find("bow") != std::string::npos) && spLower.find("bow") == std::string::npos) isCustomServerItem = true;
-            else if ((nLow.find("топор") != std::string::npos || nLow.find("axe") != std::string::npos || nLow.find("hatchet") != std::string::npos) && (spLower.find("axe") == std::string::npos && spLower.find("hatchet") == std::string::npos)) isCustomServerItem = true;
-            else if ((nLow.find("скрап") != std::string::npos || nLow.find("scrap") != std::string::npos) && spLower.find("scrap") == std::string::npos) isCustomServerItem = true;
-            else if ((nLow.find("камен") != std::string::npos || nLow.find("rock") != std::string::npos) && spLower.find("stone") == std::string::npos && spLower.find("rock") == std::string::npos) isCustomServerItem = true;
+        if (vanillaOk && (vanillaMaxU > vanillaMinU) && (vanillaMaxV > vanillaMinV) && spLower != "missingno") {
+            out.minU = vanillaMinU; out.maxU = vanillaMaxU;
+            out.minV = vanillaMinV; out.maxV = vanillaMaxV;
+            out.hasIcon = true;
+            iconResolved = true;
         }
 
-        // Если предмет кастомный — пробуем сначала найти его специальную иконку в ресурс-паке
-        if (isCustomServerItem) {
+        // 2. Фоллбэк: поиск кастомной текстуры в ресурс-паке по имени
+        if (!iconResolved) {
             if (QueryResourcePackSprite(env, mc, out.itemId, out.name, rU1, rU2, rV1, rV2)) {
                 out.minU = rU1; out.maxU = rU2;
                 out.minV = rV1; out.maxV = rV2;
                 out.hasIcon = true;
                 iconResolved = true;
             }
-        }
-
-        // 2. Если специальной иконки нет (или предмет обычный/CIT) — используем live UV из модели Minecraft!
-        // Это автоматически дает текстуру ресурс-пака (если он включен) или ванильную (если выключен)!
-        if (!iconResolved && vanillaOk && (vanillaMaxU > vanillaMinU) && (vanillaMaxV > vanillaMinV)) {
-            out.minU = vanillaMinU; out.maxU = vanillaMaxU;
-            out.minV = vanillaMinV; out.maxV = vanillaMaxV;
-            out.hasIcon = true;
-            iconResolved = true;
         }
 
         // 3. Фоллбэк: если модель не дала UV — пробуем найти в ресурс-паке по имени

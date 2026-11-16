@@ -102,3 +102,4 @@ private:
     static inline bool s_loaded = false;
     static inline GLuint s_textures[20] = { 0 };
 };
+

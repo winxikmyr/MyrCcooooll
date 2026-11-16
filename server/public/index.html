@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MYRLEGIT • Cloud Server & Auth Database</title>
+    <style>
+        :root {
+            --bg-primary: #0a0d14;
+            --bg-card: #121824;
+            --bg-hover: #192233;
+            --accent: #00d2ff;
+            --accent-glow: rgba(0, 210, 255, 0.35);
+            --accent-purple: #9b51e0;
+            --border: #1f2b3e;
+            --text-main: #e6edfa;
+            --text-muted: #7e8ea6;
+            --danger: #ff4757;
+            --warning: #ffa502;
+            --success: #2ed573;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-image: radial-gradient(circle at 10% 20%, rgba(0, 210, 255, 0.05) 0%, transparent 40%),
+                              radial-gradient(circle at 90% 80%, rgba(155, 81, 224, 0.05) 0%, transparent 40%);
+        }
+
+        header {
+            background: rgba(18, 24, 36, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 36px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-purple));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            font-size: 19px;
+            color: #fff;
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .brand-title {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .brand-title span {
+            color: var(--accent);
+        }
+
+        .server-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            background: rgba(46, 213, 115, 0.1);
+            border: 1px solid rgba(46, 213, 115, 0.3);
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--success);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+            animation: pulse 1.8s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.8; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.8; }
+        }
+
+        .main-content {
+            flex: 1;
+            max-width: 1300px;
+            margin: 0 auto;
+            width: 100%;
+            padding: 30px 24px;
+        }
+
+        /* Banner address alert */
+        .address-banner {
+            background: linear-gradient(90deg, rgba(0, 210, 255, 0.12), rgba(155, 81, 224, 0.12));
+            border: 1px solid rgba(0, 210, 255, 0.3);
+            border-radius: 12px;
+            padding: 16px 24px;
+            margin-bottom: 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .address-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .address-info .icon {
+            font-size: 24px;
+        }
+
+        .address-text h4 {
+            font-size: 15px;
+            color: #fff;
+            margin-bottom: 3px;
+        }
+
+        .address-text p {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .address-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-primary);
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .address-box code {
+            font-family: Consolas, monospace;
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .btn-copy {
+            background: var(--accent);
+            color: #0b0e14;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn-copy:hover {
+            box-shadow: 0 0 12px var(--accent-glow);
+            transform: translateY(-1px);
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 18px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px 24px;
+            position: relative;
+            overflow: hidden;
+            transition: 0.25s;
+        }
+
+        .stat-card:hover {
+            border-color: rgba(0, 210, 255, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .stat-card .val {
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--accent);
+            margin-bottom: 4px;
+        }
+
+        .stat-card .lbl {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+        }
+
+        /* Navigation Tabs */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 25px;
+            overflow-x: auto;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            outline: none;
+            color: var(--text-muted);
+            padding: 12px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-main);
+        }
+
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom: 2px solid var(--accent);
+        }
+
+        /* Tab Contents */
+        .tab-pane {
+            display: none;
+        }
+
+        .tab-pane.active {
+            display: block;
+            animation: fadeIn 0.25s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Card Container */
+        .panel-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 18px 24px;
+            background: rgba(25, 34, 51, 0.4);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+
+        .panel-header h3 {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .search-box input {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            color: #fff;
+            padding: 7px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+            width: 230px;
+            transition: 0.2s;
+        }
+
+        .search-box input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 10px rgba(0, 210, 255, 0.2);
+        }
+
+        /* Table */
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 13.5px;
+        }
+
+        th {
+            background: rgba(14, 18, 27, 0.8);
+            color: #7b8fa7;
+            font-weight: 700;
+            padding: 13px 20px;
+            border-bottom: 1px solid var(--border);
+            text-transform: uppercase;
+            font-size: 11.5px;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 14px 20px;
+            border-bottom: 1px solid rgba(31, 43, 62, 0.6);
+            vertical-align: middle;
+        }
+
+        tr:hover td {
+            background: var(--bg-hover);
+        }
+
+        .user-col {
+            font-weight: 700;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .avatar {
+            width: 26px;
+            height: 26px;
+            border-radius: 6px;
+            background: linear-gradient(135deg, #1e90ff, #70a1ff);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 800;
+            color: #fff;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-bound {
+            background: rgba(0, 210, 255, 0.12);
+            color: var(--accent);
+            border: 1px solid rgba(0, 210, 255, 0.25);
+            font-family: Consolas, monospace;
+        }
+
+        .badge-free {
+            background: rgba(255, 165, 2, 0.12);
+            color: var(--warning);
+            border: 1px solid rgba(255, 165, 2, 0.25);
+        }
+
+        .password-tag {
+            background: rgba(10, 13, 20, 0.8);
+            padding: 4px 9px;
+            border-radius: 6px;
+            font-family: Consolas, monospace;
+            border: 1px solid var(--border);
+            color: #ff6b81;
+            font-size: 12.5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .action-btns {
+            display: flex;
+            gap: 6px;
+        }
+
+        .btn {
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+
+        .btn-reset {
+            background: rgba(255, 165, 2, 0.15);
+            color: var(--warning);
+            border: 1px solid rgba(255, 165, 2, 0.3);
+        }
+
+        .btn-reset:hover {
+            background: var(--warning);
+            color: #000;
+        }
+
+        .btn-delete {
+            background: rgba(255, 71, 87, 0.15);
+            color: var(--danger);
+            border: 1px solid rgba(255, 71, 87, 0.3);
+        }
+
+        .btn-delete:hover {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        /* Register Form */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            padding: 28px;
+            max-width: 600px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group.full {
+            grid-column: span 2;
+        }
+
+        .form-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .form-group input {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            color: #fff;
+            padding: 11px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: 0.2s;
+        }
+
+        .form-group input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 10px rgba(0, 210, 255, 0.2);
+        }
+
+        .btn-submit {
+            background: linear-gradient(135deg, var(--accent), #0099ff);
+            color: #0b0e14;
+            padding: 12px 22px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 0 16px var(--accent-glow);
+            transition: 0.2s;
+        }
+
+        .btn-submit:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 0 22px var(--accent-glow);
+        }
+
+        /* Guide / Friend Config Section */
+        .guide-container {
+            padding: 28px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+        }
+
+        @media (max-width: 850px) {
+            .guide-container { grid-template-columns: 1fr; }
+            .form-grid { grid-template-columns: 1fr; }
+            .form-group.full { grid-column: span 1; }
+        }
+
+        .guide-step {
+            background: rgba(14, 18, 27, 0.6);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .guide-step-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .step-num {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #0b0e14;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .guide-step p {
+            font-size: 13.5px;
+            color: var(--text-muted);
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }
+
+        .cfg-code {
+            background: #080b11;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #1a2333;
+            font-family: Consolas, monospace;
+            font-size: 13px;
+            color: #4cd137;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .btn-download-cfg {
+            background: rgba(0, 210, 255, 0.15);
+            color: var(--accent);
+            border: 1px solid rgba(0, 210, 255, 0.3);
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 12.5px;
+            cursor: pointer;
+            transition: 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-download-cfg:hover {
+            background: var(--accent);
+            color: #000;
+        }
+
+        /* Toast notification */
+        #toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--accent);
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 10px;
+            font-size: 13.5px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            display: none;
+            z-index: 1000;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 20px;
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-muted);
+            background: rgba(18, 24, 36, 0.4);
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <div class="brand-icon">M</div>
+            <div class="brand-title">MYR<span>LEGIT</span> Cloud Server</div>
+        </div>
+        <div class="server-status">
+            <div class="pulse-dot"></div>
+            <span>База данных активна</span>
+        </div>
+    </header>
+
+    <div class="main-content">
+
+        <!-- Top Banner: Easy Address for Friends -->
+        <div class="address-banner">
+            <div class="address-info">
+                <div class="icon">🌐</div>
+                <div class="address-text">
+                    <h4>Адрес сервера для других игроков</h4>
+                    <p>Скопируйте этот адрес и отправьте другу или сохраните в <code>server.txt</code> в папке чита:</p>
+                </div>
+            </div>
+            <div class="address-box">
+                <code id="serverAddressDisplay">http://localhost:8000</code>
+                <button class="btn-copy" onclick="copyServerAddress()">Копировать</button>
+                <a href="/api/download_dll" class="btn-copy" style="background:#2ed573; text-decoration:none; margin-left:8px;">📥 Скачать .dll</a>
+                <a href="/api/download_injector" class="btn-copy" style="background:#70a1ff; text-decoration:none; margin-left:4px;">📥 Скачать .exe</a>
+            </div>
+        </div>
+
+        <!-- Stats Overview -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="val" id="statTotalUsers">0</div>
+                <div class="lbl">Всего пользователей</div>
+            </div>
+            <div class="stat-card">
+                <div class="val" id="statBoundHwids">0</div>
+                <div class="lbl">Привязанных HWID</div>
+            </div>
+            <div class="stat-card">
+                <div class="val" id="statCloudConfigs">0</div>
+                <div class="lbl">Облачных конфигов</div>
+            </div>
+            <div class="stat-card">
+                <div class="val" style="color: #2ed573;">8000</div>
+                <div class="lbl">Порт сервера</div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('usersTab', this)">👥 Пользователи и HWID</button>
+            <button class="tab-btn" onclick="switchTab('registerTab', this)">➕ Зарегистрировать игрока</button>
+            <button class="tab-btn" onclick="switchTab('friendGuideTab', this)">🚀 Как зайти без ошибок (Друзьям)</button>
+        </div>
+
+        <!-- TAB 1: USERS & HWID -->
+        <div id="usersTab" class="tab-pane active">
+            <div class="panel-card">
+                <div class="panel-header">
+                    <h3>База данных аккаунтов и компьютеров</h3>
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Поиск по логину или HWID..." oninput="filterUsers()">
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Пользователь</th>
+                                <th>Пароль</th>
+                                <th>HWID Компьютера</th>
+                                <th>Дата регистрации</th>
+                                <th>Последний вход</th>
+                                <th>Облачный КФГ</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody">
+                            <tr>
+                                <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 25px;">Загрузка данных...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: REGISTER NEW USER -->
+        <div id="registerTab" class="tab-pane">
+            <div class="panel-card">
+                <div class="panel-header">
+                    <h3>Создать новый аккаунт в базе данных</h3>
+                </div>
+                <form class="form-grid" onsubmit="handleRegisterSubmit(event)">
+                    <div class="form-group full">
+                        <label for="newUsername">Желаемый логин игрока</label>
+                        <input type="text" id="newUsername" required placeholder="Например: fpsaron" autocomplete="off">
+                    </div>
+                    <div class="form-group full">
+                        <label for="newPassword">Пароль игрока</label>
+                        <input type="text" id="newPassword" required placeholder="Введите надёжный пароль" autocomplete="off">
+                    </div>
+                    <div class="form-group full">
+                        <button type="submit" class="btn-submit">Создать аккаунт</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- TAB 3: GUIDE FOR FRIENDS -->
+        <div id="friendGuideTab" class="tab-pane">
+            <div class="panel-card">
+                <div class="panel-header">
+                    <h3>Инструкция: как скинуть чит другу, чтобы не было никаких ошибок</h3>
+                </div>
+                <div class="guide-container">
+                    <div class="guide-step">
+                        <div class="guide-step-title">
+                            <span class="step-num">1</span>
+                            <span>Почему у друга была ошибка?</span>
+                        </div>
+                        <p>
+                            По умолчанию в чите был указан адрес <code>127.0.0.1</code>. Это адрес локального компьютера. 
+                            У друга на компьютере сервера нет, поэтому инжектор не мог подключиться.
+                            Сервер находится <strong>у вас</strong>, и инжектор друга должен обращаться к вашему компьютеру!
+                        </p>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="guide-step-title">
+                            <span class="step-num">2</span>
+                            <span>Способ через Radmin VPN (Самый простой)</span>
+                        </div>
+                        <p>
+                            1. Запустите <strong>Radmin VPN</strong> и создайте сеть (например <code>MyrLegit</code>).<br>
+                            2. Друг подключается к этой сети.<br>
+                            3. Скопируйте свой IP из Radmin VPN (начинается на <code>26.x.x.x</code>).<br>
+                            4. Вставьте его в файл <code>server.txt</code> в папке чита.
+                        </p>
+                        <div class="cfg-code">
+                            <span id="radminExample">http://26.x.x.x:8000</span>
+                        </div>
+                        <button class="btn-download-cfg" onclick="downloadServerTxt()">💾 Скачать готовый server.txt</button>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="guide-step-title">
+                            <span class="step-num">3</span>
+                            <span>Что нужно скинуть другу</span>
+                        </div>
+                        <p>
+                            Отправьте другу только 3 файла в одной папке:<br>
+                            • <code>Injector.exe</code><br>
+                            • <code>MyrLegit.dll</code><br>
+                            • <code>server.txt</code> (с вашим адресом)<br><br>
+                            Друг запускает <code>Injector.exe</code>, регистрируется или входит — и <strong>всё работает моментально и без единой ошибки</strong>!
+                        </p>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="guide-step-title">
+                            <span class="step-num">4</span>
+                            <span>Автоматическая привязка HWID</span>
+                        </div>
+                        <p>
+                            Когда друг впервые входит со своего компьютера, его уникальный HWID навсегда записывается к вам в базу.<br>
+                            В следующие запуски инжектор друга будет заходить <strong>автоматически без ввода пароля</strong>, а в HUD игры будет отображаться его логин!
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="toast"></div>
+
+    <footer>
+        MYRLEGIT Cloud Database System • Все права защищены • Панель администратора
+    </footer>
+
+    <script>
+        let currentUsers = [];
+
+        function showToast(text, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.innerText = text;
+            toast.style.borderColor = isError ? '#ff4757' : '#00d2ff';
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+        }
+
+        function switchTab(tabId, btn) {
+            document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            btn.classList.add('active');
+        }
+
+        // Auto detect host address
+        const currentOrigin = window.location.origin;
+        if (currentOrigin && currentOrigin !== 'null' && currentOrigin !== 'file://') {
+            document.getElementById('serverAddressDisplay').innerText = currentOrigin;
+            document.getElementById('radminExample').innerText = currentOrigin;
+        }
+
+        function copyServerAddress() {
+            const txt = document.getElementById('serverAddressDisplay').innerText;
+            navigator.clipboard.writeText(txt).then(() => {
+                showToast('Адрес скопирован в буфер обмена!');
+            });
+        }
+
+        function downloadServerTxt() {
+            const txt = document.getElementById('serverAddressDisplay').innerText;
+            const blob = new Blob([txt], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'server.txt';
+            a.click();
+            showToast('Файл server.txt скачан!');
+        }
+
+        async function fetchUsers() {
+            try {
+                const res = await fetch('/api/users');
+                if (!res.ok) throw new Error();
+                const users = await res.json();
+                currentUsers = users;
+                renderUsers(users);
+                updateStats(users);
+            } catch (err) {
+                // If static file or not implemented, parse table if present
+            }
+        }
+
+        function updateStats(users) {
+            document.getElementById('statTotalUsers').innerText = users.length;
+            const bound = users.filter(u => u.hwid && u.hwid.trim().length > 0).length;
+            document.getElementById('statBoundHwids').innerText = bound;
+            const cfgs = users.filter(u => u.cloud_cfg && u.cloud_cfg.length > 0).length;
+            document.getElementById('statCloudConfigs').innerText = cfgs;
+        }
+
+        function renderUsers(users) {
+            const tbody = document.getElementById('usersTableBody');
+            if (!users || users.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 25px;">Пока нет зарегистрированных пользователей</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = users.map(u => {
+                const isBound = u.hwid && u.hwid.trim().length > 0;
+                const hwidBadge = isBound
+                    ? `<span class="badge badge-bound" title="${u.hwid}">${u.hwid.substring(0, 18)}...</span>`
+                    : `<span class="badge badge-free">Не привязан</span>`;
+
+                const initial = (u.username || '?')[0].toUpperCase();
+                const cfgLen = (u.cloud_cfg || '').length;
+
+                return `
+                    <tr>
+                        <td>#${u.id}</td>
+                        <td>
+                            <div class="user-col">
+                                <span class="avatar">${initial}</span>
+                                <span>${u.username}</span>
+                            </div>
+                        </td>
+                        <td><span class="password-tag">${u.password}</span></td>
+                        <td>${hwidBadge}</td>
+                        <td>${u.created_at || '—'}</td>
+                        <td>${u.last_seen || '—'}</td>
+                        <td><code>${cfgLen} B</code></td>
+                        <td>
+                            <div class="action-btns">
+                                <button class="btn" style="background:#0984e3; color:#fff;" onclick="editUser(${u.id}, '${u.username}', '${u.password}', '${u.hwid || ''}')">Изменить</button>
+                                <button class="btn btn-reset" onclick="resetHwid(${u.id})">Сброс HWID</button>
+                                <button class="btn btn-delete" onclick="deleteUser(${u.id}, '${u.username}')">Удалить</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function filterUsers() {
+            const q = document.getElementById('searchInput').value.toLowerCase();
+            const filtered = currentUsers.filter(u => 
+                (u.username && u.username.toLowerCase().includes(q)) ||
+                (u.hwid && u.hwid.toLowerCase().includes(q))
+            );
+            renderUsers(filtered);
+        }
+
+        async function handleRegisterSubmit(e) {
+            e.preventDefault();
+            const uname = document.getElementById('newUsername').value.trim();
+            const pwd = document.getElementById('newPassword').value.trim();
+
+            if (!uname || !pwd) {
+                showToast('Заполните логин и пароль!', true);
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: uname, password: pwd })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showToast('Пользователь ' + uname + ' успешно создан!');
+                    document.getElementById('newUsername').value = '';
+                    document.getElementById('newPassword').value = '';
+                    fetchUsers();
+                    switchTab('usersTab', document.querySelectorAll('.tab-btn')[0]);
+                } else {
+                    showToast(data.message || 'Ошибка регистрации', true);
+                }
+            } catch (err) {
+                showToast('Ошибка подключения к серверу', true);
+            }
+        }
+
+        async function resetHwid(id) {
+            if (!confirm('Сбросить привязку HWID для этого игрока?')) return;
+            try {
+                const res = await fetch('/admin/reset_hwid', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'id=' + encodeURIComponent(id)
+                });
+                showToast('HWID успешно сброшен!');
+                fetchUsers();
+            } catch (err) {
+                showToast('Ошибка при сбросе HWID', true);
+            }
+        }
+
+        async function editUser(id, currentUsername, currentPassword, currentHwid) {
+            const newUsername = prompt('Логин игрока:', currentUsername);
+            if (newUsername === null) return;
+            const newPassword = prompt('Пароль игрока:', currentPassword);
+            if (newPassword === null) return;
+            const newHwid = prompt('HWID компьютера игрока (оставьте пустым для сброса):', currentHwid);
+            if (newHwid === null) return;
+
+            try {
+                const res = await fetch('/admin/update_user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, username: newUsername, password: newPassword, hwid: newHwid })
+                });
+                showToast('Данные игрока ' + newUsername + ' обновлены!');
+                fetchUsers();
+            } catch (err) {
+                showToast('Ошибка при обновлении пользователя', true);
+            }
+        }
+
+        async function deleteUser(id, username) {
+            if (!confirm(`Удалить пользователя ${username}?`)) return;
+            try {
+                const res = await fetch('/admin/delete_user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'id=' + encodeURIComponent(id)
+                });
+                showToast(`Пользователь ${username} удалён!`);
+                fetchUsers();
+            } catch (err) {
+                showToast('Ошибка при удалении', true);
+            }
+        }
+
+        // Initial fetch and auto refresh every 5s
+        fetchUsers();
+        setInterval(fetchUsers, 5000);
+    </script>
+</body>
+</html>
+

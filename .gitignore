@@ -1,0 +1,28 @@
+# Build outputs and binaries
+БИЛДЫ/
+bin/
+build/
+*.obj
+*.o
+*.lib
+*.exp
+*.ilk
+*.pdb
+*.tlog
+*.idb
+*.lastbuildstate
+*.log
+
+# Visual Studio / IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# System / Temp
+.DS_Store
+Thumbs.db
+*.tmp
+temp_*.txt
+step*.txt
+0

@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MYRLEGIT Cloud Portal</title>
+    <style>
+        :root {
+            --bg-body: #0b0e14;
+            --bg-card: #121824;
+            --bg-card-sub: #171f30;
+            --border: #1f2a3f;
+            --border-glow: rgba(0, 210, 255, 0.4);
+            --accent: #00d2ff;
+            --accent-purple: #9b51e0;
+            --text-main: #e2ecf8;
+            --text-muted: #798ba3;
+            --success: #2ed573;
+            --danger: #ff4757;
+            --warning: #ffa502;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+
+        body {
+            background: var(--bg-body);
+            color: var(--text-main);
+            padding: 16px;
+            font-size: 14px;
+        }
+
+        .portal-wrapper {
+            max-width: 950px;
+            margin: 0 auto;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Header */
+        .portal-header {
+            background: linear-gradient(135deg, rgba(18, 24, 36, 0.95), rgba(23, 31, 48, 0.95));
+            border-bottom: 1px solid var(--border);
+            padding: 18px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-badge {
+            width: 38px;
+            height: 38px;
+            border-radius: 9px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-purple));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            font-size: 18px;
+            color: #fff;
+            box-shadow: 0 0 15px rgba(0, 210, 255, 0.4);
+        }
+
+        .brand-title {
+            font-size: 19px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .brand-title span {
+            color: var(--accent);
+        }
+
+        .server-status-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(46, 213, 115, 0.12);
+            border: 1px solid rgba(46, 213, 115, 0.3);
+            color: var(--success);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12.5px;
+            font-weight: 700;
+        }
+
+        .pulse-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+            animation: pulse 1.8s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.8; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.8; }
+        }
+
+        /* Top Config Bar */
+        .api-config-bar {
+            background: rgba(10, 13, 20, 0.7);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            font-size: 12.5px;
+        }
+
+        .api-input-wrap {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .api-input-wrap input {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            width: 250px;
+            outline: none;
+        }
+
+        .api-input-wrap input:focus {
+            border-color: var(--accent);
+        }
+
+        .btn-small {
+            background: var(--accent);
+            color: #0b0e14;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn-small:hover {
+            box-shadow: 0 0 10px var(--border-glow);
+            transform: translateY(-1px);
+        }
+
+        /* Navigation Tabs */
+        .tabs-header {
+            display: flex;
+            background: rgba(14, 18, 27, 0.9);
+            border-bottom: 1px solid var(--border);
+            overflow-x: auto;
+        }
+
+        .tab-button {
+            background: none;
+            border: none;
+            padding: 12px 20px;
+            color: var(--text-muted);
+            font-size: 13.5px;
+            font-weight: 700;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+            transition: 0.2s;
+        }
+
+        .tab-button:hover {
+            color: #fff;
+        }
+
+        .tab-button.active {
+            color: var(--accent);
+            border-bottom: 2px solid var(--accent);
+            background: rgba(0, 210, 255, 0.04);
+        }
+
+        /* Tab Panes */
+        .tab-content {
+            padding: 24px;
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.2s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Form Controls */
+        .form-card {
+            background: var(--bg-card-sub);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 24px;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .form-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            color: #fff;
+        }
+
+        .form-desc {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .form-row {
+            margin-bottom: 16px;
+        }
+
+        .form-row label {
+            display: block;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .form-row input {
+            width: 100%;
+            background: var(--bg-body);
+            border: 1px solid var(--border);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: 0.2s;
+        }
+
+        .form-row input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 10px rgba(0, 210, 255, 0.2);
+        }
+
+        .btn-primary {
+            width: 100%;
+            background: linear-gradient(135deg, var(--accent), #00a8ff);
+            color: #080b11;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 800;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(0, 210, 255, 0.35);
+            transition: 0.2s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 0 20px rgba(0, 210, 255, 0.5);
+        }
+
+        /* Table */
+        .table-container {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            background: var(--bg-card-sub);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            text-align: left;
+        }
+
+        th {
+            background: rgba(10, 13, 20, 0.9);
+            color: #798ba3;
+            padding: 12px 16px;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.6px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(31, 42, 63, 0.6);
+            vertical-align: middle;
+        }
+
+        tr:hover td {
+            background: rgba(25, 34, 51, 0.5);
+        }
+
+        .user-tag {
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .hwid-pill {
+            display: inline-block;
+            background: rgba(0, 210, 255, 0.12);
+            color: var(--accent);
+            border: 1px solid rgba(0, 210, 255, 0.3);
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-family: Consolas, monospace;
+            font-size: 11.5px;
+        }
+
+        .hwid-pill.free {
+            background: rgba(255, 165, 2, 0.12);
+            color: var(--warning);
+            border-color: rgba(255, 165, 2, 0.3);
+        }
+
+        .pwd-box {
+            background: #080b11;
+            padding: 3px 7px;
+            border-radius: 4px;
+            color: #ff6b81;
+            border: 1px solid var(--border);
+            font-family: Consolas, monospace;
+            font-size: 12px;
+        }
+
+        .table-btn {
+            border: none;
+            padding: 5px 9px;
+            border-radius: 5px;
+            font-size: 11.5px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+
+        .btn-edit {
+            background: #0984e3;
+            color: #fff;
+            margin-right: 5px;
+        }
+
+        .btn-edit:hover {
+            background: #74b9ff;
+            color: #000;
+        }
+
+        .btn-reset {
+            background: rgba(255, 165, 2, 0.15);
+            color: var(--warning);
+            border: 1px solid rgba(255, 165, 2, 0.3);
+            margin-right: 5px;
+        }
+
+        .btn-reset:hover {
+            background: var(--warning);
+            color: #000;
+        }
+
+        .btn-del {
+            background: rgba(255, 71, 87, 0.15);
+            color: var(--danger);
+            border: 1px solid rgba(255, 71, 87, 0.3);
+        }
+
+        .btn-del:hover {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        /* Guide */
+        .guide-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+        }
+
+        .guide-card {
+            background: var(--bg-card-sub);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 18px;
+        }
+
+        .guide-card h4 {
+            color: var(--accent);
+            font-size: 14.5px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .guide-card p {
+            color: var(--text-muted);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .code-snippet {
+            background: #080b11;
+            padding: 10px 14px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            font-family: Consolas, monospace;
+            color: #2ed573;
+            font-size: 12px;
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .toast-msg {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--accent);
+            color: #fff;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 13px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+            display: none;
+            z-index: 999;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="portal-wrapper">
+        <!-- Header -->
+        <div class="portal-header">
+            <div class="brand">
+                <div class="brand-badge">M</div>
+                <div class="brand-title">MYR<span>LEGIT</span> Cloud Portal</div>
+            </div>
+            <div class="server-status-pill">
+                <div class="pulse-indicator"></div>
+                <span id="serverStatusText">Сервер активен</span>
+            </div>
+        </div>
+
+        <!-- API Config Bar -->
+        <div class="api-config-bar">
+            <span>Адрес сервера:</span>
+            <div class="api-input-wrap">
+                <input type="text" id="apiServerUrl" placeholder="http://26.x.x.x:8000 или http://localhost:8000">
+                <button class="btn-small" onclick="saveApiUrl()">💾 Сохранить</button>
+                <button class="btn-small" style="background:#2ed573;" onclick="downloadDirectDll()">📥 Скачать .dll</button>
+                <button class="btn-small" style="background:#70a1ff;" onclick="downloadDirectInjector()">📥 Скачать .exe</button>
+            </div>
+        </div>
+
+        <!-- Tabs Navigation -->
+        <div class="tabs-header">
+            <button class="tab-button active" onclick="openTab('tabRegister', this)">➕ Регистрация аккаунта</button>
+            <button class="tab-button" onclick="openTab('tabUsers', this)">👥 База пользователей & HWID</button>
+            <button class="tab-button" onclick="openTab('tabGuide', this)">📖 Как зайти без ошибок</button>
+        </div>
+
+        <!-- TAB 1: REGISTRATION -->
+        <div id="tabRegister" class="tab-content active">
+            <div class="form-card">
+                <div class="form-title">Создание аккаунта игрока</div>
+                <div class="form-desc">
+                    Зарегистрируйтесь здесь, чтобы получить доступ к читу. После регистрации просто введите этот логин и пароль в <code>Injector.exe</code>.
+                </div>
+                <form onsubmit="handlePortalRegister(event)">
+                    <div class="form-row">
+                        <label for="regUser">Желаемый логин</label>
+                        <input type="text" id="regUser" required placeholder="Например: fpsaron" autocomplete="off">
+                    </div>
+                    <div class="form-row">
+                        <label for="regPass">Пароль</label>
+                        <input type="text" id="regPass" required placeholder="Введите пароль" autocomplete="off">
+                    </div>
+                    <button type="submit" class="btn-primary">Зарегистрироваться</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- TAB 2: USERS DATABASE -->
+        <div id="tabUsers" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="font-size: 15px;">Список зарегистрированных игроков и управление HWID</h3>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-small" style="background:#2ed573;" onclick="addUserPrompt()">➕ Добавить игрока</button>
+                    <button class="btn-small" onclick="loadUsersList()">🔄 Обновить</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Игрок</th>
+                            <th>Пароль</th>
+                            <th>Привязка HWID</th>
+                            <th>Дата регистрации</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="portalTableBody">
+                        <tr>
+                            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">Нажмите «Обновить» для загрузки данных...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 3: GUIDE FOR PLAYERS -->
+        <div id="tabGuide" class="tab-content">
+            <div class="guide-grid">
+                <div class="guide-card">
+                    <h4>1. Получите чит</h4>
+                    <p>
+                        Скачайте <code>Injector.exe</code> и <code>MyrLegit.dll</code> кнопками вверху сайта, либо просто скачайте один <code>Injector.exe</code> — он сам скачает нужные файлы с сервера при запуске!
+                    </p>
+                </div>
+
+                <div class="guide-card">
+                    <h4>2. Настройка server.txt</h4>
+                    <p>
+                        В файле <code>server.txt</code> в папке чита должен быть указан сетевой адрес создателя (например через Radmin VPN):
+                    </p>
+                    <div class="code-snippet">
+                        <span id="displaySnippetUrl">http://localhost:8000</span>
+                    </div>
+                    <button class="btn-small" onclick="downloadServerTxtFile()">💾 Скачать готовый server.txt</button>
+                </div>
+
+                <div class="guide-card">
+                    <h4>3. Вход в игру</h4>
+                    <p>
+                        1. Запустите Minecraft 1.12.2.<br>
+                        2. Откройте <code>Injector.exe</code>.<br>
+                        3. Выберите [1] Вход и введите данные аккаунта.<br>
+                        4. Ваш ПК автоматически привяжется к аккаунту!
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-msg" id="portalToast"></div>
+
+    <script>
+        let savedApi = localStorage.getItem('myrlegit_api_url');
+        let defaultApi = savedApi;
+        // Если это адрес гугл-айфрейма или пустой, не используем его
+        if (!defaultApi || defaultApi.includes('googleusercontent.com') || defaultApi.includes('google.com') || defaultApi === 'null' || defaultApi.startsWith('file')) {
+            defaultApi = 'http://localhost:8000';
+        }
+        document.getElementById('apiServerUrl').value = defaultApi;
+        document.getElementById('displaySnippetUrl').innerText = defaultApi;
+
+        function saveApiUrl() {
+            let val = document.getElementById('apiServerUrl').value.trim();
+            if (val.endsWith('/')) val = val.slice(0, -1);
+            localStorage.setItem('myrlegit_api_url', val);
+            defaultApi = val;
+            document.getElementById('displaySnippetUrl').innerText = val;
+            showPortalToast('Адрес сервера сохранён: ' + val);
+            loadUsersList();
+        }
+
+        function getApiUrl() {
+            let val = document.getElementById('apiServerUrl').value.trim();
+            if (val.endsWith('/')) val = val.slice(0, -1);
+            return val || defaultApi;
+        }
+
+        function showPortalToast(text, isErr = false) {
+            const toast = document.getElementById('portalToast');
+            toast.innerText = text;
+            toast.style.borderColor = isErr ? '#ff4757' : '#00d2ff';
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 3200);
+        }
+
+        function openTab(tabId, btn) {
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            btn.classList.add('active');
+            if (tabId === 'tabUsers') {
+                loadUsersList();
+            }
+        }
+
+        function downloadDirectDll() {
+            const api = getApiUrl();
+            window.open(api + '/api/download_dll', '_blank');
+        }
+
+        function downloadDirectInjector() {
+            const api = getApiUrl();
+            window.open(api + '/api/download_injector', '_blank');
+        }
+
+        function downloadServerTxtFile() {
+            const url = getApiUrl();
+            const blob = new Blob([url], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'server.txt';
+            a.click();
+            showPortalToast('server.txt скачан!');
+        }
+
+        async function handlePortalRegister(e) {
+            e.preventDefault();
+            const username = document.getElementById('regUser').value.trim();
+            const password = document.getElementById('regPass').value.trim();
+            const api = getApiUrl();
+
+            if (!username || !password) {
+                showPortalToast('Заполните логин и пароль!', true);
+                return;
+            }
+
+            try {
+                const res = await fetch(api + '/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showPortalToast('Пользователь ' + username + ' успешно зарегистрирован!');
+                    document.getElementById('regUser').value = '';
+                    document.getElementById('regPass').value = '';
+                    openTab('tabUsers', document.querySelectorAll('.tab-button')[1]);
+                } else {
+                    showPortalToast(data.message || 'Ошибка регистрации', true);
+                }
+            } catch (err) {
+                showPortalToast('Ошибка соединения с сервером (' + api + ')', true);
+            }
+        }
+
+        async function addUserPrompt() {
+            const username = prompt('Введите логин нового игрока:');
+            if (!username) return;
+            const password = prompt('Введите пароль игрока:');
+            if (!password) return;
+            const api = getApiUrl();
+
+            try {
+                const res = await fetch(api + '/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showPortalToast('Игрок ' + username + ' создан!');
+                    loadUsersList();
+                } else {
+                    showPortalToast(data.message || 'Ошибка создания', true);
+                }
+            } catch (err) {
+                showPortalToast('Ошибка соединения с сервером', true);
+            }
+        }
+
+        async function loadUsersList() {
+            const api = getApiUrl();
+            const tbody = document.getElementById('portalTableBody');
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 15px;">Загрузка данных с ${api}...</td></tr>`;
+
+            try {
+                const res = await fetch(api + '/api/users');
+                if (!res.ok) throw new Error();
+                const users = await res.json();
+
+                if (!users || users.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">Нет пользователей в базе данных</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = users.map(u => {
+                    const isBound = u.hwid && u.hwid.trim().length > 0;
+                    const hwidBadge = isBound
+                        ? `<span class="hwid-pill" title="${u.hwid}">${u.hwid.substring(0, 16)}...</span>`
+                        : `<span class="hwid-pill free">Не привязан</span>`;
+
+                    return `
+                        <tr>
+                            <td>#${u.id}</td>
+                            <td><span class="user-tag">${u.username}</span></td>
+                            <td><span class="pwd-box">${u.password}</span></td>
+                            <td>${hwidBadge}</td>
+                            <td>${u.created_at || '—'}</td>
+                            <td>
+                                <button class="table-btn btn-edit" onclick="editUserRow(${u.id}, '${u.username}', '${u.password}', '${u.hwid || ''}')">✏️ Изменить</button>
+                                <button class="table-btn btn-reset" onclick="resetUserHwid(${u.id})">Сброс HWID</button>
+                                <button class="table-btn btn-del" onclick="deleteUserRow(${u.id}, '${u.username}')">Удалить</button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (err) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: var(--danger); padding: 20px; line-height: 1.6;">
+                            ⚠️ Не удалось подключиться к серверу по адресу: <strong>${api}</strong><br>
+                            <small style="color:var(--text-muted)">
+                                1. Убедитесь, что сервер запущен на ПК через <b>Запустить_Сервер.bat</b>.<br>
+                                2. Если открываете сайт с другого ПК или в Google Sites, введите в поле вверху IP вашего компьютера (например Radmin VPN: <code>http://26.x.x.x:8000</code>) и нажмите «Сохранить».
+                            </small>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        async function editUserRow(id, currentUsername, currentPassword, currentHwid) {
+            const newUsername = prompt('Логин игрока:', currentUsername);
+            if (newUsername === null) return;
+            const newPassword = prompt('Пароль игрока:', currentPassword);
+            if (newPassword === null) return;
+            const newHwid = prompt('HWID компьютера игрока (оставьте пустым для сброса):', currentHwid);
+            if (newHwid === null) return;
+
+            const api = getApiUrl();
+            try {
+                const res = await fetch(api + '/admin/update_user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, username: newUsername, password: newPassword, hwid: newHwid })
+                });
+                showPortalToast('Данные игрока ' + newUsername + ' обновлены!');
+                loadUsersList();
+            } catch (err) {
+                showPortalToast('Ошибка при обновлении', true);
+            }
+        }
+
+        async function resetUserHwid(id) {
+            if (!confirm('Сбросить привязку компьютера (HWID) для этого игрока?')) return;
+            const api = getApiUrl();
+            try {
+                await fetch(api + '/admin/reset_hwid', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'id=' + encodeURIComponent(id)
+                });
+                showPortalToast('HWID сброшен!');
+                loadUsersList();
+            } catch (err) {
+                showPortalToast('Ошибка при сбросе HWID', true);
+            }
+        }
+
+        async function deleteUserRow(id, username) {
+            if (!confirm(`Удалить игрока ${username}?`)) return;
+            const api = getApiUrl();
+            try {
+                await fetch(api + '/admin/delete_user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'id=' + encodeURIComponent(id)
+                });
+                showPortalToast(`Игрок ${username} удалён!`);
+                loadUsersList();
+            } catch (err) {
+                showPortalToast('Ошибка при удалении', true);
+            }
+        }
+
+        // Авто-загрузка
+        loadUsersList();
+    </script>
+</body>
+</html>

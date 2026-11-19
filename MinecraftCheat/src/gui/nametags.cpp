@@ -165,7 +165,7 @@ void NameTags::Draw(const ModuleNameTags* settings) {
         if (!projected) {
             // Верхняя точка может пересечь near plane при приближении или
             // camera bob. Проецируем точки от головы до корпуса, сохраняя тег.
-            const double fallbackHeights[] = { effHeight * 0.9, effHeight * 0.75, effHeight * 0.6, effHeight * 0.4, 0.2 };
+            const double fallbackHeights[] = { effHeight + 0.15, effHeight * 0.95, effHeight * 0.8, effHeight * 0.6, effHeight * 0.4, 0.2 };
             for (double h : fallbackHeights) {
                 if (JVMBridge::Get().WorldToScreen({ player.pos.x, player.pos.y + h, player.pos.z }, scHead)) {
                     projected = true;
@@ -177,6 +177,7 @@ void NameTags::Draw(const ModuleNameTags* settings) {
 
         float center = scHead.x; // Центр игрока на экране строго по оси X
         float posY   = scHead.y; // Верхняя точка над головой на экране
+        if (posY < 28.0f) posY = 28.0f; // В тесных комнатах удерживаем бейдж в видимой зоне экрана
 
         // Масштабирование шрифта
         float distFactor = std::max(0.7f, std::min(1.8f, (1.0f + player.distance * 0.015f)));
@@ -196,6 +197,16 @@ void NameTags::Draw(const ModuleNameTags* settings) {
             tagName += "[ZOOMED] ";
         }
         std::string realName = CleanMinecraftCodes((settings->rustexBypass && !player.realName.empty()) ? player.realName : player.name);
+        // Защита от дублирования собственного ника: чужой игрок никогда не должен показываться под ником локального пользователя!
+        if (!data.username.empty() && data.username != "Player" && data.username != "Unknown" && player.distance >= 0.8f) {
+            std::string lowReal = realName;
+            std::string lowUser = data.username;
+            for (char& c : lowReal) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+            for (char& c : lowUser) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+            if (lowReal == lowUser) {
+                realName = (!player.name.empty() && player.name != data.username && player.name != "?" && player.name != "Unknown") ? CleanMinecraftCodes(player.name) : "Player";
+            }
+        }
         if (realName.empty() || realName == "Player" || realName == "?" || realName == "Unknown") {
             if (!player.realName.empty() && player.realName != "Player" && player.realName != "?" && player.realName != "Unknown") realName = CleanMinecraftCodes(player.realName);
             else if (!player.name.empty() && player.name != "Player" && player.name != "?" && player.name != "Unknown") realName = CleanMinecraftCodes(player.name);

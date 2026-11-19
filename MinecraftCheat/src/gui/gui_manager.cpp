@@ -545,62 +545,62 @@ void GUIManager::Render(HDC hdc) {
         }
     }
 
-    // Arrows — стрелочки направления к игрокам (математически точная проекция направления)
+    // Arrows — стрелочки направления к игрокам (математически точная 2D проекция направления)
     if (canDrawWorldHUD && m_clickGui && m_clickGui->IsArrowsEnabled()) {
         auto* arr = m_clickGui->GetArrowsModule();
         if (arr) {
             ImDrawList* draw = ImGui::GetBackgroundDrawList();
             ImFont* font = ImGui::GetFont();
-            ImVec2 center(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
+            ImVec2 dispSize = ImGui::GetIO().DisplaySize;
+            ImVec2 center(dispSize.x * 0.5f, dispSize.y * 0.5f);
             constexpr double kPI = 3.14159265358979323846;
-
-            // Переводим направление к цели в базис камеры. Учитываем и yaw,
-            // и pitch, иначе стрелка совпадает только по азимуту и уходит
-            // выше/ниже реальной позиции цели на экране.
-            const double yawRad = mcData.camYaw * (kPI / 180.0);
-            const double pitchRad = mcData.camPitch * (kPI / 180.0);
-            const double rightX = -cos(yawRad);
-            const double rightZ = -sin(yawRad);
-            const double upX = -sin(yawRad) * sin(pitchRad);
-            const double upY = cos(pitchRad);
-            const double upZ = cos(yawRad) * sin(pitchRad);
 
             for (const auto& pl : mcData.players) {
                 if (pl.distance < 0.8f) continue;
                 if (!mcData.username.empty() && mcData.username != "Player" && pl.name == mcData.username && pl.distance < 1.0f) continue;
                 if (arr->ignoreBot && (pl.isBot || pl.name == "Zombie" || pl.name == "Animal")) continue;
-                std::string realName = pl.realName.empty() ? pl.name : pl.realName;
 
+                // Если включена опция «Только за экраном» (onlyOffscreen):
+                // если цель уже видна на экране в поле зрения — не рисуем стрелочку
+                if (arr->onlyOffscreen) {
+                    Vec2 scPos;
+                    if (JVMBridge::Get().WorldToScreen({ pl.pos.x, pl.pos.y + pl.height * 0.5, pl.pos.z }, scPos)) {
+                        if (scPos.x >= 0.0f && scPos.x <= dispSize.x &&
+                            scPos.y >= 0.0f && scPos.y <= dispSize.y) {
+                            continue;
+                        }
+                    }
+                }
+
+                std::string realName = pl.realName.empty() ? pl.name : pl.realName;
                 bool isFriend = FriendManager::Get().IsFriend(realName);
                 ImU32 arrowColor = isFriend ? IM_COL32(75, 230, 110, 255) : IM_COL32(255, 75, 75, 255);
 
+                // Вычисляем горизонтальный угол к цели в системе координат Minecraft:
+                // yaw = 0 -> +Z (Юг), yaw = 90 -> -X (Запад), yaw = 180 -> -Z (Север), yaw = 270 -> +X (Восток)
                 double diffX = pl.pos.x - mcData.camPos.x;
-                double diffY = pl.pos.y + std::max(0.6, std::min(pl.height * 0.85, 1.62)) - mcData.camPos.y;
                 double diffZ = pl.pos.z - mcData.camPos.z;
-                float dirX = static_cast<float>(diffX * rightX + diffZ * rightZ);
-                float dirY = static_cast<float>(-(diffX * upX + diffY * upY + diffZ * upZ));
-                float dirLen = std::sqrt(dirX * dirX + dirY * dirY);
-                if (dirLen < 1e-4f) {
-                    // При цели точно за спиной её проекция схлопывается к
-                    // нулю: используем компасный азимут как резерв.
-                    const double relative = atan2(diffX, diffZ) - yawRad;
-                    dirX = static_cast<float>(sin(relative));
-                    dirY = static_cast<float>(-cos(relative));
-                    dirLen = std::sqrt(dirX * dirX + dirY * dirY);
-                }
-                if (dirLen < 1e-4f) continue;
-                dirX /= dirLen;
-                dirY /= dirLen;
+                double targetYaw = std::atan2(diffZ, diffX) * 180.0 / kPI - 90.0;
+                double deltaYaw = BloodAim::Wrap(targetYaw - mcData.camYaw);
+                double deltaRad = deltaYaw * (kPI / 180.0);
 
-                float arrowX = center.x + dirX * arr->arrowRadius;
-                float arrowY = center.y + dirY * arr->arrowRadius;
+                // dirX > 0: цель справа (вправо по экрану)
+                // dirX < 0: цель слева (влево по экрану)
+                // dirY < 0: цель спереди (вверх по экрану)
+                // dirY > 0: цель сзади (вниз по экрану)
+                float dirX = static_cast<float>(sin(deltaRad));
+                float dirY = static_cast<float>(-cos(deltaRad));
 
-                // Крупнее контрастный маркер с мягким свечением.
-                draw->AddCircleFilled(ImVec2(arrowX, arrowY), 17.0f, (arrowColor & 0x00FFFFFF) | 0x26000000, 24);
-                draw->AddCircleFilled(ImVec2(arrowX, arrowY), 13.0f, IM_COL32(9, 12, 20, 220), 24);
-                draw->AddCircle(ImVec2(arrowX, arrowY), 13.0f, IM_COL32(255, 255, 255, 85), 24, 1.2f);
+                float radius = arr->arrowRadius > 10.0f ? arr->arrowRadius : 60.0f;
+                float arrowX = center.x + dirX * radius;
+                float arrowY = center.y + dirY * radius;
 
-                // Наконечник указывает строго в направлении от центра к цели.
+                // Крупнее контрастный маркер с мягким свечением
+                draw->AddCircleFilled(ImVec2(arrowX, arrowY), 16.0f, (arrowColor & 0x00FFFFFF) | 0x26000000, 24);
+                draw->AddCircleFilled(ImVec2(arrowX, arrowY), 12.0f, IM_COL32(9, 12, 20, 220), 24);
+                draw->AddCircle(ImVec2(arrowX, arrowY), 12.0f, IM_COL32(255, 255, 255, 85), 24, 1.2f);
+
+                // Наконечник указывает строго в направлении от центра к цели
                 float tipX = arrowX + dirX * 12.0f;
                 float tipY = arrowY + dirY * 12.0f;
 
@@ -622,8 +622,9 @@ void GUIManager::Render(HDC hdc) {
                     float tSz = font->FontSize * 0.65f;
                     ImVec2 tDim = font->CalcTextSizeA(tSz, FLT_MAX, 0.f, dBuf);
 
-                    float textX = center.x + dirX * arr->textRadius - tDim.x * 0.5f;
-                    float textY = center.y + dirY * arr->textRadius - tDim.y * 0.5f;
+                    float textR = arr->textRadius > 20.0f ? arr->textRadius : (radius + 18.0f);
+                    float textX = center.x + dirX * textR - tDim.x * 0.5f;
+                    float textY = center.y + dirY * textR - tDim.y * 0.5f;
                     const float padX = 6.0f;
                     const float padY = 3.0f;
                     draw->AddRectFilled(ImVec2(textX - padX, textY - padY),
@@ -935,13 +936,13 @@ void GUIManager::Render(HDC hdc) {
                 draw->AddCircle(center, radius, fovCol, 80, 1.8f);
             }
 
-            // При открытом меню чита или активном GUI-экране (инвентарь, сундук) не наводимся
-                static DWORD lastAimUpdate = 0;
-                if (m_guiOpen || mcData.hasScreen) {
+            // При открытом меню чита или активном чате не наводимся
+            static DWORD lastAimUpdate = 0;
+            if (m_guiOpen || mcData.isChatOpen) {
                 aim->hasTarget = false;
                 aim->ticks = 0;
-                    lockedTargetEntId = 0;
-                    lastAimUpdate = 0;
+                lockedTargetEntId = 0;
+                lastAimUpdate = 0;
             } else {
                 double myEyeX = (mcData.playerPos.x != 0.0) ? mcData.playerPos.x : mcData.camPos.x;
                 double myFeetY = (mcData.playerPos.y != 0.0) ? mcData.playerPos.y : (mcData.camPos.y - 1.62);
@@ -964,7 +965,7 @@ void GUIManager::Render(HDC hdc) {
                 auto considerTarget = [&](const PlayerTagInfo& pl) {
                     if (pl.distance < 0.25f) return;
                     if (pl.distance > aim->range) return;
-                    if (!mcData.username.empty() && mcData.username != "Player" && pl.name == mcData.username) return;
+                    if (pl.distance < 0.8f && !mcData.username.empty() && mcData.username != "Player" && pl.name == mcData.username) return;
 
                     std::string realName = pl.realName.empty() ? pl.name : pl.realName;
                     if (FriendManager::Get().IsFriend(realName)) return;

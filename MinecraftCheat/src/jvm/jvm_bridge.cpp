@@ -8,6 +8,8 @@
 #include <unordered_set>
 #include <cctype>
 
+std::string GetInjectorUsername();
+
 static const std::unordered_map<int, const char*> CUSTOM_ITEM_IDS = {
     { 1125, "Stone" },
     { 1396, "Bow" },
@@ -472,6 +474,16 @@ std::string JVMBridge::QueryUsername(JNIEnv* env) {
     return username;
 }
 
+static bool EqualCaseInsensitive(const std::string& a, const std::string& b) {
+    if (a.empty() || b.empty()) return false;
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (tolower(static_cast<unsigned char>(a[i])) != tolower(static_cast<unsigned char>(b[i])))
+            return false;
+    }
+    return true;
+}
+
 static bool IsValidPlayerName(const std::string& name) {
     if (name.length() < 3 || name.length() > 16) return false;
     for (char c : name) {
@@ -556,7 +568,8 @@ static std::string ExtractRealPlayerName(const std::string& raw, const std::stri
             return candidates[i];
         }
     }
-    return candidates.back();
+    // Если все кандидаты совпали с собственным ником — ни в коем случае не возвращаем его для чужих игроков!
+    return lowerLocal.empty() ? candidates.back() : "";
 }
 
 int JVMBridge::QueryPing(JNIEnv* env) {
@@ -4513,7 +4526,7 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                 const char* s = env->GetStringUTFChars(jD, nullptr);
                                 if (s) {
                                     std::string cand = ExtractRealPlayerName(s, m_data.username);
-                                    if (IsValidPlayerName(cand)) resolvedRealName = cand;
+                                    if (IsValidPlayerName(cand) && !EqualCaseInsensitive(cand, m_data.username) && !EqualCaseInsensitive(cand, GetInjectorUsername())) resolvedRealName = cand;
                                     env->ReleaseStringUTFChars(jD, s);
                                 }
                                 env->DeleteLocalRef(jD);
@@ -4540,7 +4553,7 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                 const char* s = env->GetStringUTFChars(jPN, nullptr);
                                 if (s) {
                                     std::string cand = ExtractRealPlayerName(s, m_data.username);
-                                    if (IsValidPlayerName(cand)) resolvedRealName = cand;
+                                    if (IsValidPlayerName(cand) && !EqualCaseInsensitive(cand, m_data.username) && !EqualCaseInsensitive(cand, GetInjectorUsername())) resolvedRealName = cand;
                                     env->ReleaseStringUTFChars(jPN, s);
                                 }
                                 env->DeleteLocalRef(jPN);
@@ -4574,8 +4587,8 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                             const char* s = env->GetStringUTFChars(jTxt, nullptr);
                             if (s && s[0] != '\0') {
                                 std::string cand = ExtractRealPlayerName(s, m_data.username);
-                                if (IsValidPlayerName(cand)) resolvedRealName = cand;
-                                if (pName.empty() && IsValidPlayerName(s)) pName = s;
+                                if (IsValidPlayerName(cand) && !EqualCaseInsensitive(cand, m_data.username) && !EqualCaseInsensitive(cand, GetInjectorUsername())) resolvedRealName = cand;
+                                if (pName.empty() && IsValidPlayerName(s) && !EqualCaseInsensitive(s, m_data.username) && !EqualCaseInsensitive(s, GetInjectorUsername())) pName = s;
                             }
                             if (s) env->ReleaseStringUTFChars(jTxt, s);
                             env->DeleteLocalRef(jTxt);
@@ -4599,8 +4612,8 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                     const char* s = env->GetStringUTFChars(jCName, nullptr);
                     if (s && s[0] != '\0') {
                         std::string cand = ExtractRealPlayerName(s, m_data.username);
-                        if (IsValidPlayerName(cand)) resolvedRealName = cand;
-                        if (pName.empty() && IsValidPlayerName(s)) pName = s;
+                        if (IsValidPlayerName(cand) && !EqualCaseInsensitive(cand, m_data.username) && !EqualCaseInsensitive(cand, GetInjectorUsername())) resolvedRealName = cand;
+                        if (pName.empty() && IsValidPlayerName(s) && !EqualCaseInsensitive(s, m_data.username) && !EqualCaseInsensitive(s, GetInjectorUsername())) pName = s;
                     }
                     if (s) env->ReleaseStringUTFChars(jCName, s);
                     env->DeleteLocalRef(jCName);
@@ -4710,8 +4723,8 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                     const char* s = env->GetStringUTFChars(jName, nullptr);
                     if (s && s[0] != '\0') {
                         std::string cand = ExtractRealPlayerName(s, m_data.username);
-                        if (IsValidPlayerName(cand)) resolvedRealName = cand;
-                        if (pName.empty() && IsValidPlayerName(s)) pName = s;
+                        if (IsValidPlayerName(cand) && !EqualCaseInsensitive(cand, m_data.username) && !EqualCaseInsensitive(cand, GetInjectorUsername())) resolvedRealName = cand;
+                        if (pName.empty() && IsValidPlayerName(s) && !EqualCaseInsensitive(s, m_data.username) && !EqualCaseInsensitive(s, GetInjectorUsername())) pName = s;
                     }
                     if (s) env->ReleaseStringUTFChars(jName, s);
                     env->DeleteLocalRef(jName);
@@ -4761,7 +4774,9 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
         if (!mSneak) { env->ExceptionClear(); mSneak = env->GetMethodID(cPlayer, "func_70093_af", "()Z"); }
         bool isSneak = mSneak ? env->CallBooleanMethod(pObj, mSneak) : false;
 
-        std::string finalName = IsValidPlayerName(resolvedRealName) ? resolvedRealName : (IsValidPlayerName(pName) ? pName : "Player");
+        std::string finalName = (IsValidPlayerName(resolvedRealName) && !EqualCaseInsensitive(resolvedRealName, m_data.username) && !EqualCaseInsensitive(resolvedRealName, GetInjectorUsername()))
+            ? resolvedRealName
+            : ((IsValidPlayerName(pName) && !EqualCaseInsensitive(pName, m_data.username) && !EqualCaseInsensitive(pName, GetInjectorUsername())) ? pName : "Player");
         if (finalName.find("Sleeping") != std::string::npos || finalName.find("sleeping") != std::string::npos ||
             finalName == "ground" || finalName == "Ground") {
             env->DeleteLocalRef(cPlayer);
@@ -4775,7 +4790,7 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
         tag.realName = finalName;
 
         // Запоминаем валидное имя игрока в постоянную память, чтобы оно не терялось на дистанции
-        if (IsValidPlayerName(tag.realName) && tag.realName != "Player") {
+        if (IsValidPlayerName(tag.realName) && tag.realName != "Player" && !EqualCaseInsensitive(tag.realName, m_data.username) && !EqualCaseInsensitive(tag.realName, GetInjectorUsername())) {
             if (entId != 0) m_knownPlayerNamesByEntId[entId] = tag.realName;
             if (!entityUUIDStr.empty()) m_knownPlayerNamesByUUID[entityUUIDStr] = tag.realName;
         }
@@ -6004,15 +6019,20 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
         std::string bestStandName = "";
 
         for (const auto& snp : standNameplates) {
+            // Если стойка брони находится на самом локальном игроке (в пределах 1.4м от нас) — это бейдж НАШЕГО ника, пропускаем!
+            double ddxLocal = snp.pos.x - myInterpX;
+            double ddzLocal = snp.pos.z - myInterpZ;
+            if (sqrt(ddxLocal * ddxLocal + ddzLocal * ddzLocal) < 1.4) continue;
+
             double ddx = pl.pos.x - snp.pos.x;
             double ddz = pl.pos.z - snp.pos.z;
             double horizDist = sqrt(ddx * ddx + ddz * ddz);
             double ddy = snp.pos.y - pl.pos.y;
 
-            // На RustEx бейдж стойки брони висит над игроком (при быстром беге увеличиваем радиус до 16м)
-            if (horizDist < 16.0 && ddy >= -4.0 && ddy <= 7.0) {
+            // На RustEx бейдж стойки брони висит строго над игроком (горизонтальное смещение до 1.5м, по высоте 0.3..3.2м)
+            if (horizDist <= 1.5 && ddy >= 0.3 && ddy <= 3.2) {
                 std::string cand = ExtractRealPlayerName(snp.name, m_data.username);
-                if (IsValidPlayerName(cand) && cand != m_data.username) {
+                if (IsValidPlayerName(cand) && !EqualCaseInsensitive(cand, m_data.username) && !EqualCaseInsensitive(cand, GetInjectorUsername())) {
                     double totalD = horizDist + fabs(ddy - 1.8) * 0.4;
                     if (totalD < bestStandDist) {
                         bestStandDist = totalD;
@@ -6022,31 +6042,31 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
             }
         }
 
-        if (!bestStandName.empty()) {
+        if (!bestStandName.empty() && !EqualCaseInsensitive(bestStandName, m_data.username) && !EqualCaseInsensitive(bestStandName, GetInjectorUsername())) {
             pl.realName = bestStandName;
             pl.name = bestStandName;
             if (pl.entId != 0) m_knownPlayerNamesByEntId[pl.entId] = bestStandName;
             if (!pl.uuidStr.empty()) m_knownPlayerNamesByUUID[pl.uuidStr] = bestStandName;
         }
 
-        // Если ник всё ещё "Player", достаём из постоянной памяти по entId или UUID
-        if (pl.realName == "Player" || pl.name == "Player" || !IsValidPlayerName(pl.realName)) {
+        // Если ник всё ещё "Player" или совпал с собственным ником, достаём из постоянной памяти по entId или UUID
+        if (pl.realName == "Player" || pl.name == "Player" || !IsValidPlayerName(pl.realName) || EqualCaseInsensitive(pl.realName, m_data.username)) {
             if (pl.entId != 0) {
                 auto itE = m_knownPlayerNamesByEntId.find(pl.entId);
-                if (itE != m_knownPlayerNamesByEntId.end() && IsValidPlayerName(itE->second)) {
+                if (itE != m_knownPlayerNamesByEntId.end() && IsValidPlayerName(itE->second) && !EqualCaseInsensitive(itE->second, m_data.username)) {
                     pl.realName = itE->second;
                     pl.name = itE->second;
                 }
             }
-            if ((pl.realName == "Player" || pl.name == "Player") && !pl.uuidStr.empty()) {
+            if ((pl.realName == "Player" || pl.name == "Player" || EqualCaseInsensitive(pl.realName, m_data.username)) && !pl.uuidStr.empty()) {
                 auto itU = m_knownPlayerNamesByUUID.find(pl.uuidStr);
-                if (itU != m_knownPlayerNamesByUUID.end() && IsValidPlayerName(itU->second)) {
+                if (itU != m_knownPlayerNamesByUUID.end() && IsValidPlayerName(itU->second) && !EqualCaseInsensitive(itU->second, m_data.username)) {
                     pl.realName = itU->second;
                     pl.name = itU->second;
                 }
-                if (pl.realName == "Player" || pl.name == "Player") {
+                if (pl.realName == "Player" || pl.name == "Player" || EqualCaseInsensitive(pl.realName, m_data.username)) {
                     auto itOff = m_offlineTabNames.find(pl.uuidStr);
-                    if (itOff != m_offlineTabNames.end() && IsValidPlayerName(itOff->second)) {
+                    if (itOff != m_offlineTabNames.end() && IsValidPlayerName(itOff->second) && !EqualCaseInsensitive(itOff->second, m_data.username)) {
                         pl.realName = itOff->second;
                         pl.name = itOff->second;
                     }

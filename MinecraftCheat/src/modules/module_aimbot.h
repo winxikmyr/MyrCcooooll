@@ -6,7 +6,7 @@ class ModuleAimBot : public ModuleBase {
 public:
     float fov         = 48.0f;
     float range       = 300.0f;
-    float predict     = 6.1f;
+    float predict     = 0.0f; // Без упреждения по умолчанию: при необходимости настраивается вручную
     float vPredict    = 0.0f; // 0.0 = между глаз, выше = выше
     float smoothness  = 1.0f; // 1.0 = snap, до 7.0 = плавно
     bool  bodyAim     = false;

@@ -457,7 +457,9 @@ void GUIManager::Render(HDC hdc) {
                 if (tag.rfind("item.", 0) == 0) tag = tag.substr(5);
                 if (tag.rfind("tile.", 0) == 0) tag = tag.substr(5);
 
-                float fontSize = (font ? font->FontSize * 0.72f : 12.f);
+                float distanceScale = std::clamp(1.0f + item.distance * 0.0025f * esp->distantFontBoost, 1.0f, 2.5f);
+                float fontSize = (font ? font->FontSize * 0.72f : 12.f) *
+                    std::clamp(esp->labelScaleMul, 0.35f, 2.8f) * distanceScale;
                 ImVec2 tagTextSize = font ? font->CalcTextSizeA(fontSize, FLT_MAX, 0.f, tag.c_str()) : ImVec2(30.f, 12.f);
                 float tagWidth = tagTextSize.x;
 
@@ -472,7 +474,7 @@ void GUIManager::Render(HDC hdc) {
                 snprintf(dis, sizeof(dis), "%.1f м", item.distance);
 
                 // Fonts.nunito12.drawStringWithOutline(dis, drawX + 14, drawY + 3, -1)
-                if (esp->drawDistance && font) {
+                if (esp->drawDistance && !esp->drawIconOnly && font) {
                     ImVec2 dPos(drawX + 14.0f, drawY + 3.0f);
                     draw->AddText(font, fontSize, ImVec2(dPos.x - 1.f, dPos.y), IM_COL32(0, 0, 0, 255), dis);
                     draw->AddText(font, fontSize, ImVec2(dPos.x + 1.f, dPos.y), IM_COL32(0, 0, 0, 255), dis);
@@ -482,7 +484,7 @@ void GUIManager::Render(HDC hdc) {
                 }
 
                 // Отрисовка имени предмета с контуром (если включено drawName)
-                if (esp->drawName && font) {
+                if (esp->drawName && !esp->drawIconOnly && font) {
                     char fullTag[128];
                     if (item.count > 1) snprintf(fullTag, sizeof(fullTag), "%s x%d", tag.c_str(), item.count);
                     else snprintf(fullTag, sizeof(fullTag), "%s", tag.c_str());
@@ -498,7 +500,7 @@ void GUIManager::Render(HDC hdc) {
 
                 // Отрисовка иконки предмета: mc.getRenderItem().renderItemAndEffectIntoGUI(item, (int) drawX - 2, (int) drawY)
                 if (esp->drawIcon) {
-                    float iconSz = 16.0f;
+                    float iconSz = std::clamp(esp->iconSize, 8.0f, 64.0f);
                     float ix = drawX - 2.0f;
                     float iy = drawY;
 
@@ -552,9 +554,16 @@ void GUIManager::Render(HDC hdc) {
             ImVec2 center(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
             constexpr double kPI = 3.14159265358979323846;
 
-            double yawRad = mcData.camYaw * (kPI / 180.0);
-            double sinY = sin(yawRad);
-            double cosY = cos(yawRad);
+            // Переводим направление к цели в базис камеры. Учитываем и yaw,
+            // и pitch, иначе стрелка совпадает только по азимуту и уходит
+            // выше/ниже реальной позиции цели на экране.
+            const double yawRad = mcData.camYaw * (kPI / 180.0);
+            const double pitchRad = mcData.camPitch * (kPI / 180.0);
+            const double rightX = -cos(yawRad);
+            const double rightZ = -sin(yawRad);
+            const double upX = -sin(yawRad) * sin(pitchRad);
+            const double upY = cos(pitchRad);
+            const double upZ = cos(yawRad) * sin(pitchRad);
 
             for (const auto& pl : mcData.players) {
                 if (pl.distance < 0.8f) continue;
@@ -565,33 +574,35 @@ void GUIManager::Render(HDC hdc) {
                 bool isFriend = FriendManager::Get().IsFriend(realName);
                 ImU32 arrowColor = isFriend ? IM_COL32(75, 230, 110, 255) : IM_COL32(255, 75, 75, 255);
 
-                // Если игрок прямо перед глазами на экране и включен onlyOffscreen — не загромождаем экран стрелкой
-                if (arr->onlyOffscreen) {
-                    Vec2 scPos;
-                    if (JVMBridge::Get().WorldToScreen({ pl.pos.x, pl.pos.y + pl.height * 0.5, pl.pos.z }, scPos)) {
-                        ImVec2 disp = ImGui::GetIO().DisplaySize;
-                        if (scPos.x >= 25.0f && scPos.x <= disp.x - 25.0f &&
-                            scPos.y >= 25.0f && scPos.y <= disp.y - 25.0f) {
-                            continue;
-                        }
-                    }
-                }
-
-                // Точный математический расчет угла и позиции стрелок (1-в-1 как в Arrows.java из 71181)
                 double diffX = pl.pos.x - mcData.camPos.x;
+                double diffY = pl.pos.y + std::max(0.6, std::min(pl.height * 0.85, 1.62)) - mcData.camPos.y;
                 double diffZ = pl.pos.z - mcData.camPos.z;
-                double yawDeg = (atan2(diffZ, diffX) * (180.0 / kPI)) - mcData.camYaw - 90.0;
-                double circleAngleRad = (yawDeg - 90.0) * (kPI / 180.0);
-
-                float dirX = static_cast<float>(cos(circleAngleRad));
-                float dirY = static_cast<float>(sin(circleAngleRad));
+                float dirX = static_cast<float>(diffX * rightX + diffZ * rightZ);
+                float dirY = static_cast<float>(-(diffX * upX + diffY * upY + diffZ * upZ));
+                float dirLen = std::sqrt(dirX * dirX + dirY * dirY);
+                if (dirLen < 1e-4f) {
+                    // При цели точно за спиной её проекция схлопывается к
+                    // нулю: используем компасный азимут как резерв.
+                    const double relative = atan2(diffX, diffZ) - yawRad;
+                    dirX = static_cast<float>(sin(relative));
+                    dirY = static_cast<float>(-cos(relative));
+                    dirLen = std::sqrt(dirX * dirX + dirY * dirY);
+                }
+                if (dirLen < 1e-4f) continue;
+                dirX /= dirLen;
+                dirY /= dirLen;
 
                 float arrowX = center.x + dirX * arr->arrowRadius;
                 float arrowY = center.y + dirY * arr->arrowRadius;
 
-                // Наконечник стрелки указывает строго в направлении от центра к цели
-                float tipX = arrowX + dirX * 10.0f;
-                float tipY = arrowY + dirY * 10.0f;
+                // Крупнее контрастный маркер с мягким свечением.
+                draw->AddCircleFilled(ImVec2(arrowX, arrowY), 17.0f, (arrowColor & 0x00FFFFFF) | 0x26000000, 24);
+                draw->AddCircleFilled(ImVec2(arrowX, arrowY), 13.0f, IM_COL32(9, 12, 20, 220), 24);
+                draw->AddCircle(ImVec2(arrowX, arrowY), 13.0f, IM_COL32(255, 255, 255, 85), 24, 1.2f);
+
+                // Наконечник указывает строго в направлении от центра к цели.
+                float tipX = arrowX + dirX * 12.0f;
+                float tipY = arrowY + dirY * 12.0f;
 
                 float perpX = -dirY;
                 float perpY =  dirX;
@@ -603,7 +614,7 @@ void GUIManager::Render(HDC hdc) {
                 float baseRightY = arrowY - dirY * 5.0f - perpY * 7.0f;
 
                 draw->AddTriangleFilled(ImVec2(tipX, tipY), ImVec2(baseLeftX, baseLeftY), ImVec2(baseRightX, baseRightY), arrowColor);
-                draw->AddTriangle(ImVec2(tipX, tipY), ImVec2(baseLeftX, baseLeftY), ImVec2(baseRightX, baseRightY), IM_COL32(10, 10, 15, 220), 1.2f);
+                draw->AddTriangle(ImVec2(tipX, tipY), ImVec2(baseLeftX, baseLeftY), ImVec2(baseRightX, baseRightY), IM_COL32(7, 9, 15, 245), 1.4f);
 
                 if (arr->showDistance && font) {
                     char dBuf[32];
@@ -613,8 +624,14 @@ void GUIManager::Render(HDC hdc) {
 
                     float textX = center.x + dirX * arr->textRadius - tDim.x * 0.5f;
                     float textY = center.y + dirY * arr->textRadius - tDim.y * 0.5f;
-
-                    draw->AddText(font, tSz, ImVec2(textX + 1.f, textY + 1.f), IM_COL32(0, 0, 0, 220), dBuf);
+                    const float padX = 6.0f;
+                    const float padY = 3.0f;
+                    draw->AddRectFilled(ImVec2(textX - padX, textY - padY),
+                                        ImVec2(textX + tDim.x + padX, textY + tDim.y + padY),
+                                        IM_COL32(9, 12, 20, 215), 6.0f);
+                    draw->AddRect(ImVec2(textX - padX, textY - padY),
+                                  ImVec2(textX + tDim.x + padX, textY + tDim.y + padY),
+                                  IM_COL32(255, 255, 255, 55), 6.0f, 0, 1.0f);
                     draw->AddText(font, tSz, ImVec2(textX, textY), arrowColor, dBuf);
                 }
             }
@@ -901,6 +918,7 @@ void GUIManager::Render(HDC hdc) {
     if (canDrawWorldHUD && m_clickGui && m_clickGui->IsAimBotEnabled()) {
         auto* aim = m_clickGui->GetAimBotModule();
         if (aim) {
+            static int lockedTargetEntId = 0;
             ImDrawList* draw = ImGui::GetBackgroundDrawList();
             ImVec2 center(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
 
@@ -918,81 +936,134 @@ void GUIManager::Render(HDC hdc) {
             }
 
             // При открытом меню чита или активном GUI-экране (инвентарь, сундук) не наводимся
-            if (m_guiOpen || mcData.hasScreen) {
+                static DWORD lastAimUpdate = 0;
+                if (m_guiOpen || mcData.hasScreen) {
                 aim->hasTarget = false;
                 aim->ticks = 0;
+                    lockedTargetEntId = 0;
+                    lastAimUpdate = 0;
             } else {
                 double myEyeX = (mcData.playerPos.x != 0.0) ? mcData.playerPos.x : mcData.camPos.x;
                 double myFeetY = (mcData.playerPos.y != 0.0) ? mcData.playerPos.y : (mcData.camPos.y - 1.62);
                 double myEyeZ = (mcData.playerPos.z != 0.0) ? mcData.playerPos.z : mcData.camPos.z;
-                BloodAim::Point playerPos{ myEyeX, myFeetY, myEyeZ };
-                float eyeHeight = 1.62f;
+                BloodAim::Point eyePosition{ mcData.camPos.x, mcData.camPos.y, mcData.camPos.z };
+                if (eyePosition.x == 0.0 && eyePosition.y == 0.0 && eyePosition.z == 0.0) {
+                    eyePosition = { myEyeX, myFeetY + 1.62, myEyeZ };
+                }
                 float yaw = mcData.camYaw;
                 float pitch = mcData.camPitch;
 
                 const PlayerTagInfo* bestTarget = nullptr;
+                const PlayerTagInfo* lockedTarget = nullptr;
+                float lockedScore = 1e10f;
                 float bestScore = 1e10f;
 
-                for (const auto& pl : mcData.players) {
-                    if (pl.distance < 0.25f) continue;
-                    if (pl.distance > aim->range) continue;
-                    if (!mcData.username.empty() && mcData.username != "Player" && pl.name == mcData.username) continue;
+                // Игроки и EntityMob собираются в разные списки. Раньше AimBot
+                // проверял только players, поэтому зомби и серверные NPC никогда
+                // не становились целью даже при выключенном «Игнорировать ботов».
+                auto considerTarget = [&](const PlayerTagInfo& pl) {
+                    if (pl.distance < 0.25f) return;
+                    if (pl.distance > aim->range) return;
+                    if (!mcData.username.empty() && mcData.username != "Player" && pl.name == mcData.username) return;
 
                     std::string realName = pl.realName.empty() ? pl.name : pl.realName;
-                    if (FriendManager::Get().IsFriend(realName)) continue;
-                    if (pl.health <= 0.0f) continue;
-                    if (aim->bots && (pl.isBot || pl.name.find("[NPC]") != std::string::npos || pl.name.find("[npc]") != std::string::npos)) continue;
-                    if (!aim->walls && !pl.canBeSeen && pl.distance > 3.5f) continue;
+                    if (FriendManager::Get().IsFriend(realName)) return;
+                    if (pl.health <= 0.0f) return;
+                    if (aim->bots && (pl.isBot || pl.name.find("[NPC]") != std::string::npos || pl.name.find("[npc]") != std::string::npos)) return;
+                    if (!aim->walls && !pl.canBeSeen && pl.distance > 3.5f) return;
 
-                    // Точь-в-точь выбор цели по MouseDistance из NoDesynce:
-                    BloodAim::Point targetPos = (pl.pos.x != 0.0 || pl.pos.z != 0.0)
-                        ? BloodAim::Point{ pl.pos.x, pl.pos.y, pl.pos.z }
-                        : BloodAim::Point{ pl.rawPos.x, pl.rawPos.y, pl.rawPos.z };
-                    float score = BloodAim::MouseDistance(targetPos, playerPos, eyeHeight, yaw, pitch);
+                    // Одна и та же точка используется для выбора цели и наведения:
+                    // по умолчанию центр головы, при включённом bodyAim — корпус.
+                    const double targetHeight = std::max(0.6, std::min(
+                        pl.height * (aim->bodyAim ? 0.5 : 0.9),
+                        aim->bodyAim ? 0.9 : 1.62));
+                    BloodAim::Point targetPos{ pl.pos.x, pl.pos.y + targetHeight, pl.pos.z };
+                    float score = BloodAim::MouseDistanceToPoint(targetPos, eyePosition, yaw, pitch);
 
+                    if (pl.entId != 0 && pl.entId == lockedTargetEntId) {
+                        lockedTarget = &pl;
+                        lockedScore = score;
+                    }
                     if (score <= aim->fov && score < bestScore) {
                         bestScore = score;
                         bestTarget = &pl;
                     }
+                };
+
+                for (const auto& pl : mcData.players) {
+                    considerTarget(pl);
+                }
+                // bots == «Игнорировать ботов»: когда опция выключена,
+                // добавляем зомби/мобов из отдельного списка мира.
+                if (!aim->bots) {
+                    for (const auto& mob : mcData.mobs) {
+                        considerTarget(mob);
+                    }
+                }
+
+                // Keep the same entity while it remains a valid in-FOV target.
+                // Choosing the nearest angular score every render frame caused
+                // rapid swaps between adjacent players and visible camera shake.
+                if (lockedTarget && lockedScore <= aim->fov) {
+                    bestTarget = lockedTarget;
                 }
 
                 if (bestTarget) {
+                    lockedTargetEntId = bestTarget->entId;
                     aim->hasTarget = true;
                     aim->ticks++;
 
-                    BloodAim::Point position = (bestTarget->rawPos.x != 0.0 || bestTarget->rawPos.z != 0.0)
-                        ? BloodAim::Point{ bestTarget->rawPos.x, bestTarget->rawPos.y, bestTarget->rawPos.z }
-                        : BloodAim::Point{ bestTarget->pos.x, bestTarget->pos.y, bestTarget->pos.z };
-                    BloodAim::Point lastRender = (bestTarget->lastRender.x != 0.0 || bestTarget->lastRender.z != 0.0)
-                        ? BloodAim::Point{ bestTarget->lastRender.x, bestTarget->lastRender.y, bestTarget->lastRender.z }
-                        : position;
-                    BloodAim::Point previousTick = (bestTarget->prevTick.x != 0.0 || bestTarget->prevTick.z != 0.0)
-                        ? BloodAim::Point{ bestTarget->prevTick.x, bestTarget->prevTick.y, bestTarget->prevTick.z }
-                        : position;
-
-                    double partial = mcData.timerPartialTicks > 0.0f ? mcData.timerPartialTicks : 1.0;
-
-                    // Predict точь-в-точь из NoDesynce
-                    position = BloodAim::Predict(position, lastRender, previousTick, playerPos, partial,
-                                                 aim->predict, aim->range, aim->vPredict);
-
-                    // Расчет целевых углов Face точь-в-точь из NoDesynce (с поддержкой BAim / bodyAim)
-                    auto facing = BloodAim::Face(position, playerPos, eyeHeight, yaw, pitch, aim->bodyAim);
+                    // pos — уже интерполированные координаты того же кадра,
+                    // что и камера. Предикт добавляем отдельно от этой точки,
+                    // только по фактическому перемещению между тиками.
+                    BloodAim::Point position{ bestTarget->pos.x, bestTarget->pos.y, bestTarget->pos.z };
+                    // Treat the sliders as lead strength rather than literal
+                    // tick counts. Large values like 6.5/2.0 previously moved
+                    // the aim point several blocks ahead or above the entity.
+                    const double horizontalLead = std::clamp(static_cast<double>(aim->predict) * 0.1, 0.0, 1.0);
+                    const double verticalLead = std::clamp(static_cast<double>(aim->vPredict) * 0.1, 0.0, 0.2);
+                    double leadX = (bestTarget->rawPos.x - bestTarget->prevTick.x) * horizontalLead;
+                    double leadZ = (bestTarget->rawPos.z - bestTarget->prevTick.z) * horizontalLead;
+                    const double leadLength = std::sqrt(leadX * leadX + leadZ * leadZ);
+                    if (leadLength > 0.45) {
+                        leadX *= 0.45 / leadLength;
+                        leadZ *= 0.45 / leadLength;
+                    }
+                    position.x += leadX;
+                    position.z += leadZ;
+                    position.y += std::clamp(
+                        (bestTarget->rawPos.y - bestTarget->prevTick.y) * verticalLead,
+                        -0.15, 0.15);
+                    position.y += std::max(0.6, std::min(
+                        bestTarget->height * (aim->bodyAim ? 0.5 : 0.9),
+                        aim->bodyAim ? 0.9 : 1.62));
+                    auto facing = BloodAim::FacePoint(position, eyePosition);
 
                     if (std::isfinite(facing.yaw) && std::isfinite(facing.pitch)) {
                         float finalYaw = facing.yaw;
                         float finalPitch = facing.pitch;
 
-                        // Настройка плавности: если smoothness == 1.0f — моментальный snap, иначе плавная интерполяция
-                        if (aim->smoothness > 1.0f) {
-                            float dy = static_cast<float>(BloodAim::Wrap(facing.yaw - yaw)) / aim->smoothness;
-                            float dp = static_cast<float>(BloodAim::Wrap(facing.pitch - pitch)) / aim->smoothness;
-                            finalYaw = yaw + dy;
-                            finalPitch = pitch + dp;
-                        }
+                        // Сглаживаем по времени, поэтому скорость не зависит от FPS.
+                        // 1 — моментальный snap (100% за кадр), 2..7 — плавная интерполяция
+                        const DWORD now = GetTickCount();
+                        const DWORD elapsedMs = lastAimUpdate == 0 ? 16 : now - lastAimUpdate;
+                        if (lastAimUpdate == 0 || elapsedMs >= 8) {
+                            lastAimUpdate = now;
+                            const float smooth = std::clamp(aim->smoothness, 1.0f, 7.0f);
+                            if (smooth <= 1.05f) {
+                                finalYaw = facing.yaw;
+                                finalPitch = facing.pitch;
+                            } else {
+                                const float dt = std::clamp(static_cast<float>(elapsedMs) / 1000.0f, 0.008f, 0.05f);
+                                const float response = 20.0f / smooth;
+                                const float alpha = std::clamp(1.0f - std::exp(-response * dt), 0.05f, 1.0f);
+                                finalYaw = yaw + static_cast<float>(BloodAim::Wrap(facing.yaw - yaw)) * alpha;
+                                finalPitch = pitch + static_cast<float>(BloodAim::Wrap(facing.pitch - pitch)) * alpha;
+                            }
 
-                        finalPitch = std::clamp(finalPitch, -90.0f, 90.0f);
-                        JVMBridge::Get().SetPlayerRotation(finalYaw, finalPitch);
+                            finalPitch = std::clamp(finalPitch, -90.0f, 90.0f);
+                            JVMBridge::Get().SetPlayerRotation(finalYaw, finalPitch);
+                        }
 
                         if (aim->autoShoot && aim->ticks > 2) {
                             DWORD now = GetTickCount();
@@ -1005,6 +1076,8 @@ void GUIManager::Render(HDC hdc) {
                 } else {
                     aim->hasTarget = false;
                     aim->ticks = 0;
+                    lockedTargetEntId = 0;
+                    lastAimUpdate = 0;
                 }
             }
         }
@@ -1015,12 +1088,28 @@ void GUIManager::Render(HDC hdc) {
         auto* am = m_clickGui->GetAutoMineModule();
         if (am) {
             Vec3 bPos, aPos;
-            if (JVMBridge::Get().QueryAutoMineTarget(am->distance, bPos, aPos)) {
+            bool hasTarget = JVMBridge::Get().QueryAutoMineTarget(am->distance, bPos, aPos);
+            static DWORD s_lastTargetFoundTime = 0;
+            static Vec3 s_cachedBlockPos{ 0, 0, 0 };
+            static Vec3 s_cachedAimPos{ 0, 0, 0 };
+            DWORD now = GetTickCount();
+
+            if (hasTarget) {
+                s_lastTargetFoundTime = now;
+                s_cachedBlockPos = bPos;
+                s_cachedAimPos = aPos;
+            } else if (now - s_lastTargetFoundTime < 350 && (s_cachedAimPos.x != 0.0 || s_cachedAimPos.z != 0.0)) {
+                // Сервер переносит крест на соседнюю грань руды: удерживаем прицел и ждём новый маркер
+                hasTarget = true;
+                bPos = s_cachedBlockPos;
+                aPos = s_cachedAimPos;
+            }
+
+            if (hasTarget) {
                 am->hasTarget = true;
                 am->targetBlockPos = bPos;
                 am->targetAimPos = aPos;
 
-                // Наведение на стойку для брони (1-в-1 как в AutoMine.java: player.posY + player.getEyeHeight())
                 double myEyeX = (mcData.playerPos.x != 0.0) ? mcData.playerPos.x : mcData.camPos.x;
                 double myEyeY = (mcData.playerPos.y != 0.0 ? mcData.playerPos.y : (mcData.camPos.y - 1.62)) + 1.62;
                 double myEyeZ = (mcData.playerPos.z != 0.0) ? mcData.playerPos.z : mcData.camPos.z;
@@ -1032,10 +1121,11 @@ void GUIManager::Render(HDC hdc) {
                 constexpr double kPI = 3.14159265358979323846;
                 float targetYaw = static_cast<float>((atan2(diffZ, diffX) * 180.0 / kPI) - 90.0);
                 float targetPitch = static_cast<float>(-(atan2(diffY, dist2D) * 180.0 / kPI));
+                targetPitch = std::clamp(targetPitch, -90.0f, 90.0f);
                 JVMBridge::Get().SetPlayerRotation(targetYaw, targetPitch);
 
+                // Задержка 230 мс строго как в AutoMine.java: this.timer.hasReached(230L)
                 static DWORD lastMineTime = 0;
-                DWORD now = GetTickCount();
                 if (now - lastMineTime >= 230) {
                     lastMineTime = now;
                     JVMBridge::Get().SendDiggingPacket(static_cast<int>(bPos.x),
@@ -1100,7 +1190,7 @@ void GUIManager::Render(HDC hdc) {
         if (currMB && !s_prevMButton) {
             auto* mcf = m_clickGui ? m_clickGui->GetMCFModule() : nullptr;
             if (mcf && mcf->IsEnabled() && mcf->onFriend) {
-                std::string targetName = "";
+                std::string targetName = JVMBridge::Get().QueryPointedPlayer();
 
                 // Направление взгляда камеры игрока
                 constexpr double kPI = 3.14159265358979323846;
@@ -1115,6 +1205,7 @@ void GUIManager::Render(HDC hdc) {
                 float bestHitDist = 6.0f; // Максимальная дистанция ограничена 6 блоками
 
                 for (const auto& pl : mcData.players) {
+                    if (!targetName.empty()) break;
                     if (pl.distance < 0.2f || pl.distance > 6.0f) continue;
                     if (!mcData.username.empty() && mcData.username != "Player" && pl.name == mcData.username) continue;
                     if (pl.name == "Zombie" || pl.realName == "Zombie") continue;
@@ -1243,7 +1334,29 @@ void GUIManager::Render(HDC hdc) {
 
     // Рендерим ImGui
     ImGui::Render();
-    ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+    // Иконки ресурспака часто увеличиваются с 16/32 px до размера HUD.
+    // На время только ImGui-прохода включаем линейную фильтрацию атласа,
+    // затем сразу возвращаем исходные параметры Minecraft-текстуры.
+    const GLuint itemAtlas = JVMBridge::Get().Data().atlasTextureId;
+    if (itemAtlas != 0) {
+        GLint previousTexture = 0;
+        GLint previousMinFilter = GL_NEAREST;
+        GLint previousMagFilter = GL_NEAREST;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+        glBindTexture(GL_TEXTURE_2D, itemAtlas);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &previousMinFilter);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &previousMagFilter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+        ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+        glBindTexture(GL_TEXTURE_2D, itemAtlas);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, previousMinFilter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, previousMagFilter);
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+    } else {
+        ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+    }
 
     // ── Полное восстановление расширенного стейта OpenGL ──────────────────────
     if (pfn_glBindBuffer) {

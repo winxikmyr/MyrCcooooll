@@ -82,7 +82,8 @@ void HUDPlus::DrawArmorHUD(float yOffset, float userScaleMul) {
         float iy = (baseY * guiScale);
 
         // 1. Отрисовка спрайта предмета (renderItemAndEffectIntoGUI)
-        if (d.atlasTextureId > 0 && arm.hasIcon) {
+        if (d.atlasTextureId > 0 && arm.hasIcon &&
+            arm.maxU > arm.minU && arm.maxV > arm.minV) {
             draw->AddImage(
                 reinterpret_cast<ImTextureID>(static_cast<intptr_t>(d.atlasTextureId)),
                 ImVec2(ix, iy),

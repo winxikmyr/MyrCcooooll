@@ -285,7 +285,7 @@ bool ConfigManager::DeserializeFromString(const std::string& data, ClickGUI* gui
         if (s.count("fov")) aim->fov = std::stof(s["fov"]);
         if (s.count("range")) aim->range = std::stof(s["range"]);
         if (s.count("smoothness")) aim->smoothness = std::clamp(std::stof(s["smoothness"]), 1.0f, 7.0f);
-        if (s.count("predict")) aim->predict = std::stof(s["predict"]);
+        if (s.count("predict")) aim->predict = std::clamp(std::stof(s["predict"]), 0.0f, 10.0f);
         if (s.count("vPredict")) aim->vPredict = std::clamp(std::stof(s["vPredict"]), 0.0f, 2.0f);
         if (s.count("bodyAim")) aim->bodyAim = (std::stoi(s["bodyAim"]) != 0);
         if (s.count("drawFov")) aim->drawFov = (std::stoi(s["drawFov"]) != 0);

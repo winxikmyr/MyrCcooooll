@@ -154,7 +154,6 @@ void NameTags::Draw(const ModuleNameTags* settings) {
 
     for (const auto& player : data.players) {
         if (player.distance < 0.05f) continue;
-        if (!data.username.empty() && data.username != "Unknown" && data.username != "Player" && player.name == data.username && player.distance < 1.0f) continue;
         if (player.distance > settings->renderDistance) continue;
 
         // Прямая проекция точки над головой игрока (для спящих/сидящих игроков учитываем полную высоту)
@@ -162,7 +161,19 @@ void NameTags::Draw(const ModuleNameTags* settings) {
         double pHeight = effHeight + 0.35 - (player.isSneaking ? 0.2 : 0.0);
         Vec3 headPos = { player.pos.x, player.pos.y + pHeight, player.pos.z };
         Vec2 scHead;
-        if (!JVMBridge::Get().WorldToScreen(headPos, scHead)) continue;
+        bool projected = JVMBridge::Get().WorldToScreen(headPos, scHead);
+        if (!projected) {
+            // Верхняя точка может пересечь near plane при приближении или
+            // camera bob. Проецируем точки от головы до корпуса, сохраняя тег.
+            const double fallbackHeights[] = { effHeight * 0.9, effHeight * 0.75, effHeight * 0.6, effHeight * 0.4, 0.2 };
+            for (double h : fallbackHeights) {
+                if (JVMBridge::Get().WorldToScreen({ player.pos.x, player.pos.y + h, player.pos.z }, scHead)) {
+                    projected = true;
+                    break;
+                }
+            }
+        }
+        if (!projected) continue;
 
         float center = scHead.x; // Центр игрока на экране строго по оси X
         float posY   = scHead.y; // Верхняя точка над головой на экране
@@ -189,14 +200,12 @@ void NameTags::Draw(const ModuleNameTags* settings) {
             if (!player.realName.empty() && player.realName != "Player" && player.realName != "?" && player.realName != "Unknown") realName = CleanMinecraftCodes(player.realName);
             else if (!player.name.empty() && player.name != "Player" && player.name != "?" && player.name != "Unknown") realName = CleanMinecraftCodes(player.name);
         }
-        if (!data.username.empty() && data.username != "Player" && data.username != "Unknown" && player.distance >= 0.8f) {
-            if (realName == data.username) {
-                realName = (!player.name.empty() && player.name != data.username && player.name != "?" && player.name != "Unknown") ? CleanMinecraftCodes(player.name) : "Player";
-            }
-        }
+        // Сначала используем распознанный RustEx ник, затем обычное имя
+        // сущности. Не скрываем сам тег, если сервер временно отдаёт заглушку.
         if (realName.empty() || realName == "?" || realName == "Unknown") {
-            realName = "Player";
+            realName = CleanMinecraftCodes(player.name);
         }
+        if (realName.empty()) realName = "Player";
         tagName += realName;
         if (!player.clanSuffix.empty()) {
             tagName += " " + CleanMinecraftCodes(player.clanSuffix);
@@ -290,20 +299,30 @@ void NameTags::Draw(const ModuleNameTags* settings) {
             if (!stacks.empty()) {
                 float aScale = (settings->armorScale > 0.1f) ? settings->armorScale : 1.0f;
                 float effScale = scale * aScale;
-                float slotSize = 16.0f * effScale;
-                float slotStep = 20.0f * effScale;
+                // Предмет в руке важнее брони: увеличенный слот делает
+                // серверную иконку различимой даже на обычном масштабе тега.
+                const float heldBoost = 1.35f;
+                float baseSlotSize = 20.0f * effScale;
+                float baseSlotStep = 24.0f * effScale;
+                float slotSize = baseSlotSize;
+                float slotStep = baseSlotStep;
+                if (std::any_of(stacks.begin(), stacks.end(), [](const DisplaySlotInfo& s) { return s.armorSlot < 0; })) {
+                    slotSize *= heldBoost;
+                    slotStep *= heldBoost;
+                }
                 float totalW = static_cast<float>(stacks.size() - 1) * slotStep + slotSize;
 
                 for (size_t iterable = 0; iterable < stacks.size(); ++iterable) {
                     const auto& dSlot = stacks[iterable];
                     const auto* stack = dSlot.item;
-                    float itemX = center - (totalW * 0.5f) + (static_cast<float>(iterable) * slotStep);
+                    const float itemSlotSize = (dSlot.armorSlot < 0) ? slotSize : baseSlotSize;
+                    const float itemX = center - (totalW * 0.5f) + (static_cast<float>(iterable) * slotStep) + (slotSize - itemSlotSize) * 0.5f;
                     float itemY = posY - (35.0f * effScale);
 
                     // 1. Всегда рисуем аккуратную закругленную подложку слота
                     draw->AddRectFilled(
                         ImVec2(itemX, itemY),
-                        ImVec2(itemX + slotSize, itemY + slotSize),
+                        ImVec2(itemX + itemSlotSize, itemY + itemSlotSize),
                         IM_COL32(18, 22, 32, alpha),
                         3.0f * effScale
                     );
@@ -314,7 +333,7 @@ void NameTags::Draw(const ModuleNameTags* settings) {
                         draw->AddImage(
                             reinterpret_cast<ImTextureID>(static_cast<intptr_t>(data.atlasTextureId)),
                             ImVec2(itemX + 1.0f * effScale, itemY + 1.0f * effScale),
-                            ImVec2(itemX + slotSize - 1.0f * effScale, itemY + slotSize - 1.0f * effScale),
+                            ImVec2(itemX + itemSlotSize - 1.0f * effScale, itemY + itemSlotSize - 1.0f * effScale),
                             ImVec2(stack->minU, stack->minV),
                             ImVec2(stack->maxU, stack->maxV)
                         );
@@ -325,7 +344,7 @@ void NameTags::Draw(const ModuleNameTags* settings) {
                             draw->AddImage(
                                 reinterpret_cast<ImTextureID>(static_cast<intptr_t>(aTex)),
                                 ImVec2(itemX + 1.0f * effScale, itemY + 1.0f * effScale),
-                                ImVec2(itemX + slotSize - 1.0f * effScale, itemY + slotSize - 1.0f * effScale)
+                                ImVec2(itemX + itemSlotSize - 1.0f * effScale, itemY + itemSlotSize - 1.0f * effScale)
                             );
                             drawnIcon = true;
                         }

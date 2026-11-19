@@ -1895,6 +1895,12 @@ struct CachedSpriteInfo {
 };
 static std::unordered_map<std::string, CachedSpriteInfo> s_spriteCache;
 
+// TextureAtlasSprite хранит только UV. После перезагрузки серверного ресурспака
+// старые UV относятся к уже уничтоженному/пересобранному атласу, поэтому их
+// нельзя переносить на новый OpenGL texture id.
+static unsigned int s_cachedAtlasTextureId = 0;
+
+
 static bool QuerySpriteByName(JNIEnv* env, jobject mc, const char* spriteName, float& minU, float& maxU, float& minV, float& maxV) {
     if (!env || !mc || !spriteName || spriteName[0] == '\0') return false;
 
@@ -2117,6 +2123,16 @@ static void RefreshResourcePackSpriteCache(JNIEnv* env, jobject mc) {
 
 // ── Поиск подлинной иконки предмета напрямую из Ресурс-Пака (CIT / OptiFine / RustEx icons) ──
 static std::unordered_map<std::string, CachedSpriteInfo> s_resourcePackCache;
+
+static void InvalidateSpriteCachesForAtlas(unsigned int atlasTextureId) {
+    if (atlasTextureId == 0 || atlasTextureId == s_cachedAtlasTextureId) return;
+
+    s_cachedAtlasTextureId = atlasTextureId;
+    s_spriteCache.clear();
+    s_resourcePackCache.clear();
+    s_resourcePackSpriteNames.clear();
+    s_lastCITScanTime = 0;
+}
 
 static bool QueryResourcePackSprite(JNIEnv* env, jobject mc, int itemId, const std::string& itemName, float& minU, float& maxU, float& minV, float& maxV) {
     if (!env || !mc) return false;
@@ -2772,6 +2788,9 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
         }
     }
 
+    // Сохраняем fingerprint NBT: CIT/серверные модели часто различаются
+    // только тегами предмета при совпадающих ID, имени и damage.
+    std::string itemNbtKey;
     // Custom ID check from NBT: stack.getTagCompound().getInteger("CustomID")
     jmethodID mGetTag = env->GetMethodID(cIS, "p", "()Lfy;");
     if (!mGetTag) { env->ExceptionClear(); mGetTag = env->GetMethodID(cIS, "getTagCompound", "()Lnet/minecraft/nbt/NBTTagCompound;"); }
@@ -2780,6 +2799,22 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
         jobject tagComp = env->CallObjectMethod(itemStack, mGetTag);
         if (tagComp && !env->ExceptionCheck()) {
             jclass cComp = env->GetObjectClass(tagComp);
+            jmethodID mTagToString = env->GetMethodID(cComp, "toString", "()Ljava/lang/String;");
+            if (mTagToString) {
+                auto jTagText = reinterpret_cast<jstring>(env->CallObjectMethod(tagComp, mTagToString));
+                if (jTagText && !env->ExceptionCheck()) {
+                    const char* tagChars = env->GetStringUTFChars(jTagText, nullptr);
+                    if (tagChars) {
+                        itemNbtKey.assign(tagChars);
+                        env->ReleaseStringUTFChars(jTagText, tagChars);
+                    }
+                    env->DeleteLocalRef(jTagText);
+                } else if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                }
+            } else if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            }
             jmethodID mGetInt = env->GetMethodID(cComp, "h", "(Ljava/lang/String;)I");
             if (!mGetInt) { env->ExceptionClear(); mGetInt = env->GetMethodID(cComp, "getInteger", "(Ljava/lang/String;)I"); }
             if (!mGetInt) { env->ExceptionClear(); mGetInt = env->GetMethodID(cComp, "func_74762_e", "(Ljava/lang/String;)I"); }
@@ -3017,7 +3052,13 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
     };
     static std::unordered_map<std::string, CachedItemInfo> s_itemParsedCache;
 
-    std::string cacheKey = std::to_string(out.itemId) + ":" + out.name;
+    // Две серверные вещи могут быть одним и тем же ванильным предметом с
+    // одинаковым отображаемым именем, но разным CustomID/NBT и разными
+    // текстурами модели (в частности, серверные скины). Не переиспользуем UV
+    // между такими стаками: добавляем метаданные предмета в ключ кэша.
+    std::string cacheKey = std::to_string(s_cachedAtlasTextureId) + ":" +
+        std::to_string(out.itemId) + ":" + std::to_string(out.curDamage) + ":" +
+        std::to_string(out.maxDamage) + ":" + out.name + ":" + itemNbtKey;
     auto itCache = s_itemParsedCache.find(cacheKey);
     if (itCache != s_itemParsedCache.end()) {
         out.hasIcon = itCache->second.hasIcon;
@@ -3090,7 +3131,18 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
         bool iconResolved = false;
         float rU1 = 0.f, rU2 = 0.f, rV1 = 0.f, rV2 = 0.f;
 
-        if (vanillaOk && (vanillaMaxU > vanillaMinU) && (vanillaMaxV > vanillaMinV) && spLower != "missingno") {
+        // Серверы Rust часто передают кастомный предмет как обычную ванильную
+        // основу (например diamond_pickaxe) с CustomID. В таком случае UV
+        // модели указывает на основу, а не на иконку ресурспака.
+        const bool isServerCustomItem = CUSTOM_ITEM_IDS.find(out.itemId) != CUSTOM_ITEM_IDS.end();
+        if (isServerCustomItem && QueryResourcePackSprite(env, mc, out.itemId, out.name, rU1, rU2, rV1, rV2)) {
+            out.minU = rU1; out.maxU = rU2;
+            out.minV = rV1; out.maxV = rV2;
+            out.hasIcon = true;
+            iconResolved = true;
+        }
+
+        if (!iconResolved && vanillaOk && (vanillaMaxU > vanillaMinU) && (vanillaMaxV > vanillaMinV) && spLower != "missingno") {
             out.minU = vanillaMinU; out.maxU = vanillaMaxU;
             out.minV = vanillaMinV; out.maxV = vanillaMaxV;
             out.hasIcon = true;
@@ -3107,15 +3159,7 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
             }
         }
 
-        // 3. Фоллбэк: если модель не дала UV — пробуем найти в ресурс-паке по имени
-        if (!iconResolved && QueryResourcePackSprite(env, mc, out.itemId, out.name, rU1, rU2, rV1, rV2)) {
-            out.minU = rU1; out.maxU = rU2;
-            out.minV = rV1; out.maxV = rV2;
-            out.hasIcon = true;
-            iconResolved = true;
-        }
-
-        // 4. Фоллбэк: ищем в атласе по имени ванильного предмета или itemId (картофель, хлеб, броня, инструменты и т.д.)
+        // 3. Фоллбэк: ищем в атласе по имени ванильного предмета или itemId (картофель, хлеб, броня, инструменты и т.д.)
         if (!iconResolved) {
             const char* namedSprite = GetGeneralItemSpriteName(out.itemId, out.name);
             if (!namedSprite || namedSprite[0] == '\0') {
@@ -3921,6 +3965,8 @@ void JVMBridge::UpdateRenderMatrices(JNIEnv* env) {
             if (env->ExceptionCheck()) env->ExceptionClear();
         }
 
+        InvalidateSpriteCachesForAtlas(m_data.atlasTextureId);
+
 
 
         env->DeleteLocalRef(cMC);
@@ -3966,6 +4012,10 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
     // FOV и субпиксельную позицию камеры без малейших дёрганий
     if (m_hasMatrices && m_projection[0] > 0.01f && m_projection[5] > 0.01f) {
         const float* M = m_modelView;
+        // ActiveRenderInfo captures the camera rotation before RenderGlobal
+        // applies the world-space viewer translation. Supply camera-relative
+        // coordinates here; using absolute world coordinates makes every
+        // marker drift with distance from the world origin.
         double eyeX = dx * M[0] + dy * M[4] + dz * M[8]  + M[12];
         double eyeY = dx * M[1] + dy * M[5] + dz * M[9]  + M[13];
         double eyeZ = dx * M[2] + dy * M[6] + dz * M[10] + M[14];
@@ -3981,18 +4031,20 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
             double ndcY = clipY / clipW;
 
             if (fabs(ndcX) <= 10.0 && fabs(ndcY) <= 10.0) {
-                double centerX = disp.x * 0.5;
-                double centerY = disp.y * 0.5;
-                double screenX = centerX + ndcX * centerX;
-                double screenY = centerY * (1.0 - ndcY);
+                const double vpX = m_viewport[0];
+                const double vpY = m_viewport[1];
+                const double vpW = m_viewport[2] > 0 ? m_viewport[2] : disp.x;
+                const double vpH = m_viewport[3] > 0 ? m_viewport[3] : disp.y;
+                double screenX = vpX + (ndcX + 1.0) * vpW * 0.5;
+                double screenY = disp.y - (vpY + (ndcY + 1.0) * vpH * 0.5);
 
                 screenOut.x = static_cast<float>(screenX);
                 screenOut.y = static_cast<float>(screenY);
                 return true;
             }
         }
-        // Точка находится за плоскостью камеры — отсекаем
-        return false;
+        // Матрицы могут относиться к соседнему кадру. Ниже пробуем расчёт
+        // по текущим углам камеры, чтобы короткий рассинхрон не гасил NameTags.
     }
 
     // Способ 2 (Fallback): Тригонометрический расчет по углам Эйлера
@@ -4000,8 +4052,7 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
     double yawRad   = m_data.camYaw * (kPI / 180.0);
     double pitchRad = m_data.camPitch * (kPI / 180.0);
 
-    // В ручном расчете без матриц камера должна находиться на высоте глаз
-    eyeCam.y += static_cast<double>(s_lastEyeHeight);
+    // camPos уже хранится на уровне глаз; повторно добавлять eyeHeight нельзя.
     dx = worldPos.x - eyeCam.x;
     dy = worldPos.y - eyeCam.y;
     dz = worldPos.z - eyeCam.z;
@@ -4105,8 +4156,8 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
         if (world) env->DeleteLocalRef(world);
         if (localPlayer) env->DeleteLocalRef(localPlayer);
         if (mc) env->DeleteLocalRef(mc);
-        m_data.players.clear();
-        m_data.droppedItems.clear();
+        // Keep the last complete snapshot through transient JNI lookup
+        // failures. Tick() clears it when the player actually leaves the world.
         return;
     }
 
@@ -4723,16 +4774,6 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
         tag.name = finalName;
         tag.realName = finalName;
 
-        // Гарантия 100%: чужой игрок никогда не получает имя локального пользователя
-        if (!m_data.username.empty() && m_data.username != "Player" && m_data.username != "Unknown") {
-            if (tag.name == m_data.username) {
-                tag.name = (IsValidPlayerName(resolvedRealName) && resolvedRealName != m_data.username) ? resolvedRealName : "Player";
-            }
-            if (tag.realName == m_data.username) {
-                tag.realName = (tag.name != m_data.username) ? tag.name : "Player";
-            }
-        }
-
         // Запоминаем валидное имя игрока в постоянную память, чтобы оно не терялось на дистанции
         if (IsValidPlayerName(tag.realName) && tag.realName != "Player") {
             if (entId != 0) m_knownPlayerNamesByEntId[entId] = tag.realName;
@@ -4844,10 +4885,26 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                 tag.maxHealth = maxHp;
                 tag.isSneaking = isSneak;
 
-                // Проверка на бота ([npc] или bot в нике)
+                // Проверяем отдельные маркеры, а не подстроку "bot":
+                // иначе обычные ники вроде Robot/Bottle ошибочно исключаются AimBot.
                 std::string lowerPName = pName;
                 for (char& ch : lowerPName) ch = static_cast<char>(tolower(ch));
-                if (lowerPName.find("bot") != std::string::npos || lowerPName.find("[npc]") != std::string::npos) {
+                auto hasNameToken = [&](const char* token) {
+                    const size_t tokenLen = strlen(token);
+                    size_t pos = lowerPName.find(token);
+                    while (pos != std::string::npos) {
+                        const bool leftBoundary = pos == 0 || !isalnum(static_cast<unsigned char>(lowerPName[pos - 1]));
+                        const size_t end = pos + tokenLen;
+                        const bool rightBoundary = end >= lowerPName.size() || !isalnum(static_cast<unsigned char>(lowerPName[end]));
+                        if (leftBoundary && rightBoundary) return true;
+                        pos = lowerPName.find(token, pos + 1);
+                    }
+                    return false;
+                };
+                const bool botPrefix = lowerPName.rfind("bot", 0) == 0 &&
+                    (lowerPName.size() == 3 || !isalpha(static_cast<unsigned char>(lowerPName[3])));
+                if (lowerPName.find("[npc]") != std::string::npos || botPrefix ||
+                    hasNameToken("bot") || hasNameToken("npc")) {
                     tag.isBot = true;
                 }
 
@@ -5387,6 +5444,10 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                         }
                         mTag.realName = mTag.name;
                         mTag.isBot = true;
+                        if (mGetEntId) {
+                            mTag.entId = env->CallIntMethod(eObj, mGetEntId);
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); mTag.entId = 0; }
+                        }
                         mTag.pos = { mInterpX, mInterpY, mInterpZ };
                         mTag.width = 0.6;
                         mTag.height = fHeight ? env->GetFloatField(eObj, fHeight) : 1.95f;
@@ -5432,6 +5493,10 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                         }
                         aTag.realName = aTag.name;
                         aTag.isBot = true;
+                        if (mGetEntId) {
+                            aTag.entId = env->CallIntMethod(eObj, mGetEntId);
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); aTag.entId = 0; }
+                        }
                         aTag.pos = { aInterpX, aInterpY, aInterpZ };
                         aTag.width = 0.6;
                         aTag.height = fHeight ? env->GetFloatField(eObj, fHeight) : 1.4f;
@@ -5880,10 +5945,12 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                     int bestCX = 0, bestCY = 0, bestCZ = 0;
                                     bool foundBlock = false;
 
-                                    // Обход области 4x4 по горизонтали [-2, 1] и по высоте [0, -1]
+                                    // Обход области 4x4 по горизонтали [-2, 1]. Сначала
+                                    // проверяем уровень стойки, затем блок ниже: если
+                                    // центры равноудалены, цель остаётся на правильном уровне.
                                     for (int ox = -2; ox < 2; ++ox) {
                                         for (int oz = -2; oz < 2; ++oz) {
-                                            for (int oy = -1; oy <= 0; ++oy) {
+                                            for (int oy = 0; oy >= -1; --oy) {
                                                 int cx = iX + ox;
                                                 int cy = iY + oy;
                                                 int cz = iZ + oz;
@@ -5898,7 +5965,10 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                                         double ddy = (cy + 0.5) - sInterpY;
                                                         double ddz = (cz + 0.5) - sInterpZ;
                                                         double dsq = ddx*ddx + ddy*ddy + ddz*ddz;
-                                                        if (dsq < bestBlockDistSq) {
+                                                        const bool tiePrefersThisBlock = foundBlock &&
+                                                            fabs(dsq - bestBlockDistSq) < 1e-9 &&
+                                                            cx == iX && cy == iY && cz == iZ;
+                                                        if (dsq < bestBlockDistSq - 1e-9 || tiePrefersThisBlock) {
                                                             bestBlockDistSq = dsq;
                                                             bestCX = cx; bestCY = cy; bestCZ = cz;
                                                             foundBlock = true;
@@ -6472,12 +6542,18 @@ void JVMBridge::SetPlayerRotation(float yaw, float pitch) {
             if (!fPrevPitch) { env->ExceptionClear(); fPrevPitch = env->GetFieldID(cPlayer, "field_70127_C", "F"); }
 
             if (fYaw && fPitch) {
-                // Точь-в-точь как в ApplyAimRotation из NoDesynce:
-                // Устанавливаем текущий и предыдущий поворот чтобы Minecraft orientCamera не боролся с аимом
+                // Синхронизируем обе стороны интерполяции. Иначе камера
+                // рендерит смесь старого prevRotation и нового угла, а AimBot
+                // продолжает рассчитывать следующую поправку от этой смеси.
                 env->SetFloatField(player, fYaw, yaw);
                 env->SetFloatField(player, fPitch, pitch);
                 if (fPrevYaw) env->SetFloatField(player, fPrevYaw, yaw);
                 if (fPrevPitch) env->SetFloatField(player, fPrevPitch, pitch);
+                // Keep the render-side sample in sync between JVMBridge ticks;
+                // otherwise every overlay frame applies its correction from
+                // the same stale camera angle and produces oscillation.
+                m_data.camYaw = yaw;
+                m_data.camPitch = pitch;
 
                 // EntityLivingBase.rotationYawHead (1.12.2: vp.aP / rotationYawHead / field_70759_as)
                 jfieldID fYawHead = env->GetFieldID(cPlayer, "aP", "F");
@@ -6485,53 +6561,47 @@ void JVMBridge::SetPlayerRotation(float yaw, float pitch) {
                 if (!fYawHead) { env->ExceptionClear(); fYawHead = env->GetFieldID(cPlayer, "field_70759_as", "F"); }
                 if (fYawHead) env->SetFloatField(player, fYawHead, yaw);
 
-                // EntityLivingBase.prevRotationYawHead (1.12.2: vp.aQ / prevRotationYawHead / field_70758_at)
                 jfieldID fPrevYawHead = env->GetFieldID(cPlayer, "aQ", "F");
                 if (!fPrevYawHead) { env->ExceptionClear(); fPrevYawHead = env->GetFieldID(cPlayer, "prevRotationYawHead", "F"); }
                 if (!fPrevYawHead) { env->ExceptionClear(); fPrevYawHead = env->GetFieldID(cPlayer, "field_70758_at", "F"); }
                 if (fPrevYawHead) env->SetFloatField(player, fPrevYawHead, yaw);
 
-                // EntityLivingBase.renderYawOffset (1.12.2: vp.aN / renderYawOffset / field_70761_aq)
                 jfieldID fRenderYawOffset = env->GetFieldID(cPlayer, "aN", "F");
                 if (!fRenderYawOffset) { env->ExceptionClear(); fRenderYawOffset = env->GetFieldID(cPlayer, "renderYawOffset", "F"); }
                 if (!fRenderYawOffset) { env->ExceptionClear(); fRenderYawOffset = env->GetFieldID(cPlayer, "field_70761_aq", "F"); }
                 if (fRenderYawOffset) env->SetFloatField(player, fRenderYawOffset, yaw);
 
-                // EntityLivingBase.prevRenderYawOffset (1.12.2: vp.aO / prevRenderYawOffset / field_70760_ar)
                 jfieldID fPrevRenderYawOffset = env->GetFieldID(cPlayer, "aO", "F");
                 if (!fPrevRenderYawOffset) { env->ExceptionClear(); fPrevRenderYawOffset = env->GetFieldID(cPlayer, "prevRenderYawOffset", "F"); }
                 if (!fPrevRenderYawOffset) { env->ExceptionClear(); fPrevRenderYawOffset = env->GetFieldID(cPlayer, "field_70760_ar", "F"); }
                 if (fPrevRenderYawOffset) env->SetFloatField(player, fPrevRenderYawOffset, yaw);
 
-                // Также мгновенно обновляем углы камеры в RenderManager mc.renderManager (bzf)
-                // В Minecraft 1.12.2: playerViewX = "e" (Pitch), playerViewY = "f" (Yaw)
+                // Keep RenderManager's camera-facing values in sync as well.
                 jobject cl = GetMinecraftClassLoader(env);
                 jclass cRM = FindMCClass(env, cl, "bzf");
                 if (!cRM) cRM = FindMCClass(env, cl, "net/minecraft/client/renderer/entity/RenderManager");
                 jfieldID fRM = env->GetFieldID(cMC, "aa", "Lbzf;");
                 if (!fRM) { env->ExceptionClear(); fRM = env->GetFieldID(cMC, "renderManager", "Lnet/minecraft/client/renderer/entity/RenderManager;"); }
+                if (!fRM) { env->ExceptionClear(); fRM = env->GetFieldID(cMC, "field_175616_W", "Lnet/minecraft/client/renderer/entity/RenderManager;"); }
                 if (fRM && cRM) {
                     jobject rmObj = env->GetObjectField(mc, fRM);
                     if (rmObj && !env->ExceptionCheck()) {
                         jfieldID fRMYaw = env->GetFieldID(cRM, "f", "F");
                         if (!fRMYaw) { env->ExceptionClear(); fRMYaw = env->GetFieldID(cRM, "playerViewY", "F"); }
                         if (!fRMYaw) { env->ExceptionClear(); fRMYaw = env->GetFieldID(cRM, "field_78735_i", "F"); }
-
                         jfieldID fRMPitch = env->GetFieldID(cRM, "e", "F");
                         if (!fRMPitch) { env->ExceptionClear(); fRMPitch = env->GetFieldID(cRM, "playerViewX", "F"); }
                         if (!fRMPitch) { env->ExceptionClear(); fRMPitch = env->GetFieldID(cRM, "field_78732_a", "F"); }
-
                         if (fRMYaw) env->SetFloatField(rmObj, fRMYaw, yaw);
                         if (fRMPitch) env->SetFloatField(rmObj, fRMPitch, pitch);
                         env->DeleteLocalRef(rmObj);
-                    } else env->ExceptionClear();
+                    } else if (env->ExceptionCheck()) {
+                        env->ExceptionClear();
+                    }
                 }
                 if (cRM) env->DeleteLocalRef(cRM);
                 if (cl) env->DeleteLocalRef(cl);
 
-                // Мгновенная синхронизация кэша ориентации камеры
-                m_data.camYaw = yaw;
-                m_data.camPitch = pitch;
             }
             env->DeleteLocalRef(cPlayer);
             env->DeleteLocalRef(player);
@@ -6634,7 +6704,7 @@ void JVMBridge::SendDiggingPacket(int x, int y, int z, int facing) {
     JNIEnv* env = GetJNIEnv();
     if (!env || !m_ok) return;
 
-    if (env->PushLocalFrame(48) != 0) return;
+    if (env->PushLocalFrame(64) != 0) return;
 
     jobject mc = GetMinecraftInstance(env);
     if (!mc || env->ExceptionCheck()) {
@@ -6644,115 +6714,114 @@ void JVMBridge::SendDiggingPacket(int x, int y, int z, int facing) {
     }
 
     jclass cMC = env->GetObjectClass(mc);
+    jobject cl = GetMinecraftClassLoader(env);
 
-    // bib.c -> bsa (PlayerControllerMP)
-    jfieldID fPC = env->GetFieldID(cMC, "c", "Lbsa;");
-    if (!fPC) { env->ExceptionClear(); fPC = env->GetFieldID(cMC, "playerController", "Lnet/minecraft/client/multiplayer/PlayerControllerMP;"); }
-    if (!fPC) { env->ExceptionClear(); fPC = env->GetFieldID(cMC, "field_71442_b", "Lnet/minecraft/client/multiplayer/PlayerControllerMP;"); }
+    // BlockPos (et)
+    jclass cBP = FindMCClass(env, cl, "et");
+    if (!cBP) cBP = FindMCClass(env, cl, "net/minecraft/util/math/BlockPos");
+    jmethodID mInitBP = cBP ? env->GetMethodID(cBP, "<init>", "(III)V") : nullptr;
+    jobject blockPos = (cBP && mInitBP) ? env->NewObject(cBP, mInitBP, x, y, z) : nullptr;
 
-    jobject pc = fPC ? env->GetObjectField(mc, fPC) : nullptr;
-    if (pc && !env->ExceptionCheck()) {
-        jclass cPC = env->GetObjectClass(pc);
-        jobject cl = GetMinecraftClassLoader(env);
+    // EnumFacing.DOWN (fa.a)
+    jclass cFacing = FindMCClass(env, cl, "fa");
+    if (!cFacing) cFacing = FindMCClass(env, cl, "net/minecraft/util/EnumFacing");
+    jfieldID fDown = cFacing ? env->GetStaticFieldID(cFacing, "a", "Lfa;") : nullptr;
+    if (!fDown && cFacing) { env->ExceptionClear(); fDown = env->GetStaticFieldID(cFacing, "DOWN", "Lnet/minecraft/util/EnumFacing;"); }
+    jobject facingObj = (cFacing && fDown) ? env->GetStaticObjectField(cFacing, fDown) : nullptr;
 
-        // BlockPos (et)
-        jclass cBP = FindMCClass(env, cl, "et");
-        if (!cBP) cBP = FindMCClass(env, cl, "net/minecraft/util/math/BlockPos");
-        jmethodID mInitBP = cBP ? env->GetMethodID(cBP, "<init>", "(III)V") : nullptr;
-        jobject blockPos = (cBP && mInitBP) ? env->NewObject(cBP, mInitBP, x, y, z) : nullptr;
+    if (blockPos && facingObj) {
+        // 1. Прямая отправка сетевого пакета CPacketPlayerDigging(Action.START_DESTROY_BLOCK, blockPos, EnumFacing.DOWN)
+        // Точь-в-точь как в AutoMine.java:
+        // this.mc.player.connection.sendPacket(new CPacketPlayerDigging(CPacketPlayerDigging.Action.START_DESTROY_BLOCK, this.blockPos, EnumFacing.DOWN));
+        jfieldID fPl = env->GetFieldID(cMC, "h", "Lbud;");
+        if (!fPl) { env->ExceptionClear(); fPl = env->GetFieldID(cMC, "player", "Lnet/minecraft/client/entity/EntityPlayerSP;"); }
+        if (!fPl) { env->ExceptionClear(); fPl = env->GetFieldID(cMC, "field_71439_g", "Lnet/minecraft/client/entity/EntityPlayerSP;"); }
+        if (fPl) {
+            jobject player = env->GetObjectField(mc, fPl);
+            if (player && !env->ExceptionCheck()) {
+                jclass cPl = env->GetObjectClass(player);
+                jfieldID fConn = env->GetFieldID(cPl, "d", "Lbrz;");
+                if (!fConn) { env->ExceptionClear(); fConn = env->GetFieldID(cPl, "connection", "Lnet/minecraft/client/network/NetHandlerPlayClient;"); }
+                if (!fConn) { env->ExceptionClear(); fConn = env->GetFieldID(cPl, "field_71174_a", "Lnet/minecraft/client/network/NetHandlerPlayClient;"); }
+                if (fConn) {
+                    jobject conn = env->GetObjectField(player, fConn);
+                    if (conn && !env->ExceptionCheck()) {
+                        jclass cConn = env->GetObjectClass(conn);
+                        jclass cDigPacket = FindMCClass(env, cl, "la");
+                        if (!cDigPacket) cDigPacket = FindMCClass(env, cl, "net/minecraft/network/play/client/CPacketPlayerDigging");
+                        jclass cAction = FindMCClass(env, cl, "la$a");
+                        if (!cAction) cAction = FindMCClass(env, cl, "net/minecraft/network/play/client/CPacketPlayerDigging$Action");
 
-        // EnumFacing.DOWN (fa.a)
-        jclass cFacing = FindMCClass(env, cl, "fa");
-        if (!cFacing) cFacing = FindMCClass(env, cl, "net/minecraft/util/EnumFacing");
-        jfieldID fDown = cFacing ? env->GetStaticFieldID(cFacing, "a", "Lfa;") : nullptr;
-        if (!fDown && cFacing) { env->ExceptionClear(); fDown = env->GetStaticFieldID(cFacing, "DOWN", "Lnet/minecraft/util/EnumFacing;"); }
-        jobject facingObj = (cFacing && fDown) ? env->GetStaticObjectField(cFacing, fDown) : nullptr;
-
-        if (blockPos && facingObj) {
-            // 1. Отправка прямого сетевого пакета CPacketPlayerDigging (1-в-1 как в AutoMine.java)
-            jfieldID fPl = env->GetFieldID(cMC, "h", "Lbud;");
-            if (!fPl) { env->ExceptionClear(); fPl = env->GetFieldID(cMC, "player", "Lnet/minecraft/client/entity/EntityPlayerSP;"); }
-            if (fPl) {
-                jobject player = env->GetObjectField(mc, fPl);
-                if (player && !env->ExceptionCheck()) {
-                    jclass cPl = env->GetObjectClass(player);
-                    jfieldID fConn = env->GetFieldID(cPl, "d", "Lbrz;");
-                    if (!fConn) { env->ExceptionClear(); fConn = env->GetFieldID(cPl, "connection", "Lnet/minecraft/client/network/NetHandlerPlayClient;"); }
-                    if (fConn) {
-                        jobject conn = env->GetObjectField(player, fConn);
-                        if (conn && !env->ExceptionCheck()) {
-                            jclass cConn = env->GetObjectClass(conn);
-                            jclass cDigPacket = FindMCClass(env, cl, "la");
-                            if (!cDigPacket) cDigPacket = FindMCClass(env, cl, "net/minecraft/network/play/client/CPacketPlayerDigging");
-                            jclass cAction = FindMCClass(env, cl, "la$a");
-                            if (!cAction) cAction = FindMCClass(env, cl, "net/minecraft/network/play/client/CPacketPlayerDigging$Action");
-
-                            if (cDigPacket && cAction) {
-                                jfieldID fStart = env->GetStaticFieldID(cAction, "a", "Lla$a;");
-                                if (!fStart) { env->ExceptionClear(); fStart = env->GetStaticFieldID(cAction, "START_DESTROY_BLOCK", "Lnet/minecraft/network/play/client/CPacketPlayerDigging$Action;"); }
-                                if (fStart) {
-                                    jobject act = env->GetStaticObjectField(cAction, fStart);
-                                    if (act && !env->ExceptionCheck()) {
-                                        jmethodID mInitDig = env->GetMethodID(cDigPacket, "<init>", "(Lla$a;Let;Lfa;)V");
-                                        if (!mInitDig) { env->ExceptionClear(); mInitDig = env->GetMethodID(cDigPacket, "<init>", "(Lnet/minecraft/network/play/client/CPacketPlayerDigging$Action;Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/EnumFacing;)V"); }
-                                        if (mInitDig) {
-                                            jobject digPkt = env->NewObject(cDigPacket, mInitDig, act, blockPos, facingObj);
-                                            if (digPkt && !env->ExceptionCheck()) {
-                                                jmethodID mSend = env->GetMethodID(cConn, "a", "(Lht;)V");
-                                                if (!mSend) { env->ExceptionClear(); mSend = env->GetMethodID(cConn, "sendPacket", "(Lnet/minecraft/network/Packet;)V"); }
-                                                if (mSend) {
-                                                    env->CallVoidMethod(conn, mSend, digPkt);
-                                                    if (env->ExceptionCheck()) env->ExceptionClear();
-                                                }
-                                                env->DeleteLocalRef(digPkt);
+                        if (cDigPacket && cAction) {
+                            jfieldID fStart = env->GetStaticFieldID(cAction, "a", "Lla$a;");
+                            if (!fStart) { env->ExceptionClear(); fStart = env->GetStaticFieldID(cAction, "START_DESTROY_BLOCK", "Lnet/minecraft/network/play/client/CPacketPlayerDigging$Action;"); }
+                            if (fStart) {
+                                jobject act = env->GetStaticObjectField(cAction, fStart);
+                                if (act && !env->ExceptionCheck()) {
+                                    jmethodID mInitDig = env->GetMethodID(cDigPacket, "<init>", "(Lla$a;Let;Lfa;)V");
+                                    if (!mInitDig) { env->ExceptionClear(); mInitDig = env->GetMethodID(cDigPacket, "<init>", "(Lnet/minecraft/network/play/client/CPacketPlayerDigging$Action;Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/EnumFacing;)V"); }
+                                    if (mInitDig) {
+                                        jobject packet = env->NewObject(cDigPacket, mInitDig, act, blockPos, facingObj);
+                                        if (packet && !env->ExceptionCheck()) {
+                                            jclass cPacket = FindMCClass(env, cl, "ht");
+                                            if (!cPacket) cPacket = FindMCClass(env, cl, "net/minecraft/network/Packet");
+                                            jmethodID mSend = env->GetMethodID(cConn, "a", "(Lht;)V");
+                                            if (!mSend) { env->ExceptionClear(); mSend = env->GetMethodID(cConn, "sendPacket", "(Lnet/minecraft/network/Packet;)V"); }
+                                            if (!mSend) { env->ExceptionClear(); mSend = env->GetMethodID(cConn, "func_147297_a", "(Lnet/minecraft/network/Packet;)V"); }
+                                            if (mSend) {
+                                                env->CallVoidMethod(conn, mSend, packet);
+                                                if (env->ExceptionCheck()) env->ExceptionClear();
                                             }
+                                            if (cPacket) env->DeleteLocalRef(cPacket);
+                                            env->DeleteLocalRef(packet);
                                         }
-                                        env->DeleteLocalRef(act);
                                     }
+                                    env->DeleteLocalRef(act);
                                 }
-                                env->DeleteLocalRef(cAction);
-                                env->DeleteLocalRef(cDigPacket);
                             }
-                            env->DeleteLocalRef(cConn);
-                            env->DeleteLocalRef(conn);
+                            env->DeleteLocalRef(cAction);
+                            env->DeleteLocalRef(cDigPacket);
                         }
+                        env->DeleteLocalRef(cConn);
+                        env->DeleteLocalRef(conn);
                     }
-                    env->DeleteLocalRef(cPl);
-                    env->DeleteLocalRef(player);
                 }
+                env->DeleteLocalRef(cPl);
+                env->DeleteLocalRef(player);
             }
+        }
 
-            // 2. Вызов bsa.b(et, fa) -> onPlayerDamageBlock(pos, side)
-            jmethodID mDamageBlock = env->GetMethodID(cPC, "b", "(Let;Lfa;)Z");
-            if (!mDamageBlock) { env->ExceptionClear(); mDamageBlock = env->GetMethodID(cPC, "onPlayerDamageBlock", "(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/EnumFacing;)Z"); }
-            if (!mDamageBlock) { env->ExceptionClear(); mDamageBlock = env->GetMethodID(cPC, "func_180512_c", "(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/EnumFacing;)Z"); }
-            if (mDamageBlock) {
-                env->CallBooleanMethod(pc, mDamageBlock, blockPos, facingObj);
-                if (env->ExceptionCheck()) env->ExceptionClear();
-            } else {
+        // 2. PlayerControllerMP: сброс задержки удара blockHitDelay = 0
+        jfieldID fPC = env->GetFieldID(cMC, "c", "Lbsa;");
+        if (!fPC) { env->ExceptionClear(); fPC = env->GetFieldID(cMC, "playerController", "Lnet/minecraft/client/multiplayer/PlayerControllerMP;"); }
+        if (!fPC) { env->ExceptionClear(); fPC = env->GetFieldID(cMC, "field_71442_b", "Lnet/minecraft/client/multiplayer/PlayerControllerMP;"); }
+        if (fPC) {
+            jobject pc = env->GetObjectField(mc, fPC);
+            if (pc && !env->ExceptionCheck()) {
+                jclass cPC = env->GetObjectClass(pc);
                 jmethodID mClickBlock = env->GetMethodID(cPC, "a", "(Let;Lfa;)Z");
                 if (!mClickBlock) { env->ExceptionClear(); mClickBlock = env->GetMethodID(cPC, "clickBlock", "(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/EnumFacing;)Z"); }
                 if (mClickBlock) {
                     env->CallBooleanMethod(pc, mClickBlock, blockPos, facingObj);
                     if (env->ExceptionCheck()) env->ExceptionClear();
                 }
+                jfieldID fDelay = env->GetFieldID(cPC, "d", "I");
+                if (!fDelay) { env->ExceptionClear(); fDelay = env->GetFieldID(cPC, "blockHitDelay", "I"); }
+                if (!fDelay) { env->ExceptionClear(); fDelay = env->GetFieldID(cPC, "field_78781_i", "I"); }
+                if (fDelay) env->SetIntField(pc, fDelay, 0);
+
+                env->DeleteLocalRef(cPC);
+                env->DeleteLocalRef(pc);
             }
-
-            // Сбрасываем blockHitDelay = 0 (bsa.d)
-            jfieldID fDelay = env->GetFieldID(cPC, "d", "I");
-            if (!fDelay) { env->ExceptionClear(); fDelay = env->GetFieldID(cPC, "blockHitDelay", "I"); }
-            if (fDelay) env->SetIntField(pc, fDelay, 0);
-
-            env->DeleteLocalRef(facingObj);
-            env->DeleteLocalRef(blockPos);
         }
 
-        if (cFacing) env->DeleteLocalRef(cFacing);
-        if (cBP) env->DeleteLocalRef(cBP);
-        env->DeleteLocalRef(cPC);
-        env->DeleteLocalRef(pc);
-    } else env->ExceptionClear();
+        env->DeleteLocalRef(facingObj);
+        env->DeleteLocalRef(blockPos);
+    }
 
+    if (cFacing) env->DeleteLocalRef(cFacing);
+    if (cBP) env->DeleteLocalRef(cBP);
+    if (cl) env->DeleteLocalRef(cl);
     env->DeleteLocalRef(cMC);
     env->DeleteLocalRef(mc);
     env->PopLocalFrame(nullptr);
@@ -6943,8 +7012,10 @@ bool JVMBridge::QueryAutoMineTarget(float maxDist, Vec3& outBlockPos, Vec3& outA
 
         if (dist <= bestDist) {
             bestDist = dist;
-            outAimPos = { target.standPos.x, target.standPos.y + 0.35, target.standPos.z };
             outBlockPos = target.blockPos;
+            // The ArmorStand is the server's visible cross marker. Mine the
+            // associated block, but rotate toward the marker position itself.
+            outAimPos = { target.standPos.x, target.standPos.y + 0.35, target.standPos.z };
             found = true;
         }
     }

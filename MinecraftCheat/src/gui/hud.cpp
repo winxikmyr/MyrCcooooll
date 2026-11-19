@@ -240,10 +240,12 @@ void HUD::Draw(const ModuleHUD* settings) {
         if (np && !np->protectedNick.empty()) dispUser = np->protectedNick;
     }
 
-    int displayFPS = GLHook::GetExactFPS();
+    // Minecraft's debugFPS is the game's own frame counter. The swap hook can
+    // see more than one buffer swap per rendered frame on LWJGL, so use it as
+    // a fallback only when the game value is not available.
+    int displayFPS = d.fps;
+    if (displayFPS <= 0) displayFPS = GLHook::GetExactFPS();
     if (displayFPS <= 0) displayFPS = static_cast<int>(std::round(ImGui::GetIO().Framerate));
-    if (displayFPS <= 0) displayFPS = d.fps;
-    if (displayFPS <= 0) displayFPS = 60;
     char fpsBuf[32];
     snprintf(fpsBuf, sizeof(fpsBuf), "%d fps", displayFPS);
 

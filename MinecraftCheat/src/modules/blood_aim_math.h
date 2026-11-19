@@ -24,6 +24,26 @@ inline Angles Face(Point target, Point player, float eye, float yaw, float pitch
     return { float(double(yaw) + Wrap(ty - double(yaw))), float(double(pitch) + Wrap(tp - double(pitch))) };
 }
 
+// Convert two world-space points to Minecraft view angles. The source point is
+// already at eye height and target is the chosen point on the entity.
+inline Angles FacePoint(Point target, Point eyePosition) {
+    const double x = target.x - eyePosition.x;
+    const double y = target.y - eyePosition.y;
+    const double z = target.z - eyePosition.z;
+    const double horizontal = std::sqrt(x * x + z * z);
+    const double yaw = std::atan2(z, x) * 180.0 / 3.141592653589793 - 90.0;
+    const double pitch = -std::atan2(y, horizontal) * 180.0 / 3.141592653589793;
+    return { static_cast<float>(yaw), static_cast<float>(pitch) };
+}
+
+inline float MouseDistanceToPoint(Point target, Point eyePosition, float yaw, float pitch) {
+    const Angles needed = FacePoint(target, eyePosition);
+    const float dy = static_cast<float>(Wrap(needed.yaw - yaw));
+    const float dp = static_cast<float>(Wrap(needed.pitch - pitch));
+    const float distance = std::sqrt(dy * dy + dp * dp);
+    return std::isfinite(distance) ? distance : 9999.0f;
+}
+
 inline float MouseDistance(Point target, Point player, float eye, float yaw, float pitch) {
     auto needed = Face(target, player, eye, yaw, pitch);
     float dy = static_cast<float>(Wrap(yaw - needed.yaw));
@@ -38,13 +58,14 @@ inline Point Predict(Point target, Point lastRender, Point previousTick, Point p
     float dz = float(player.z - target.z);
     float distance = std::sqrt(dx * dx + dz * dz);
     float predict = predictSetting + (range > 0.001f ? (distance / range) : 0.0f);
-    double x = lastRender.x + (target.x - lastRender.x) * partial + (target.x - previousTick.x) * double(predict);
-    double z = lastRender.z + (target.z - lastRender.z) * partial + (target.z - previousTick.z) * double(predict);
-    double y = lastRender.y + (target.y - lastRender.y) * partial;
-    // При vertical == 0 цель строго между глаз. Чем выше vertical (до 2.0), тем выше берём упреждение на дистанции
-    if (vertical > 0.0f) {
-        y += double(vertical) * (double(distance * distance) * 0.00035 + double(distance) * 0.005);
-    }
+    // target здесь содержит сырые координаты текущего тика. Сначала
+    // интерполируем их к кадру, затем экстраполируем скорость из прошлого тика.
+    const double x = lastRender.x + (target.x - lastRender.x) * partial + (target.x - previousTick.x) * double(predict);
+    const double z = lastRender.z + (target.z - lastRender.z) * partial + (target.z - previousTick.z) * double(predict);
+    // V-Predict is an independent vertical lead. Multiplying it by the
+    // horizontal prediction factor made the slider almost inert at range.
+    const double y = lastRender.y + (target.y - lastRender.y) * partial +
+                     (target.y - previousTick.y) * double(vertical);
     return { double(float(x)), double(float(y)), double(float(z)) };
 }
 }

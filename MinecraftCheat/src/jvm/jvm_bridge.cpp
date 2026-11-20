@@ -6811,30 +6811,6 @@ void JVMBridge::SendDiggingPacket(int x, int y, int z, int facing) {
             }
         }
 
-        // 2. PlayerControllerMP: сброс задержки удара blockHitDelay = 0
-        jfieldID fPC = env->GetFieldID(cMC, "c", "Lbsa;");
-        if (!fPC) { env->ExceptionClear(); fPC = env->GetFieldID(cMC, "playerController", "Lnet/minecraft/client/multiplayer/PlayerControllerMP;"); }
-        if (!fPC) { env->ExceptionClear(); fPC = env->GetFieldID(cMC, "field_71442_b", "Lnet/minecraft/client/multiplayer/PlayerControllerMP;"); }
-        if (fPC) {
-            jobject pc = env->GetObjectField(mc, fPC);
-            if (pc && !env->ExceptionCheck()) {
-                jclass cPC = env->GetObjectClass(pc);
-                jmethodID mClickBlock = env->GetMethodID(cPC, "a", "(Let;Lfa;)Z");
-                if (!mClickBlock) { env->ExceptionClear(); mClickBlock = env->GetMethodID(cPC, "clickBlock", "(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/EnumFacing;)Z"); }
-                if (mClickBlock) {
-                    env->CallBooleanMethod(pc, mClickBlock, blockPos, facingObj);
-                    if (env->ExceptionCheck()) env->ExceptionClear();
-                }
-                jfieldID fDelay = env->GetFieldID(cPC, "d", "I");
-                if (!fDelay) { env->ExceptionClear(); fDelay = env->GetFieldID(cPC, "blockHitDelay", "I"); }
-                if (!fDelay) { env->ExceptionClear(); fDelay = env->GetFieldID(cPC, "field_78781_i", "I"); }
-                if (fDelay) env->SetIntField(pc, fDelay, 0);
-
-                env->DeleteLocalRef(cPC);
-                env->DeleteLocalRef(pc);
-            }
-        }
-
         env->DeleteLocalRef(facingObj);
         env->DeleteLocalRef(blockPos);
     }

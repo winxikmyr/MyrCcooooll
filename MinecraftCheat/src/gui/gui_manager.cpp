@@ -945,12 +945,9 @@ void GUIManager::Render(HDC hdc) {
                 lastAimUpdate = 0;
             } else {
                 double myEyeX = (mcData.playerPos.x != 0.0) ? mcData.playerPos.x : mcData.camPos.x;
-                double myFeetY = (mcData.playerPos.y != 0.0) ? mcData.playerPos.y : (mcData.camPos.y - 1.62);
+                double myEyeY = (mcData.playerPos.y != 0.0) ? (mcData.playerPos.y + 1.62) : (mcData.camPos.y + 1.62);
                 double myEyeZ = (mcData.playerPos.z != 0.0) ? mcData.playerPos.z : mcData.camPos.z;
-                BloodAim::Point eyePosition{ mcData.camPos.x, mcData.camPos.y, mcData.camPos.z };
-                if (eyePosition.x == 0.0 && eyePosition.y == 0.0 && eyePosition.z == 0.0) {
-                    eyePosition = { myEyeX, myFeetY + 1.62, myEyeZ };
-                }
+                BloodAim::Point eyePosition{ myEyeX, myEyeY, myEyeZ };
                 float yaw = mcData.camYaw;
                 float pitch = mcData.camPitch;
 
@@ -969,14 +966,14 @@ void GUIManager::Render(HDC hdc) {
 
                     std::string realName = pl.realName.empty() ? pl.name : pl.realName;
                     if (FriendManager::Get().IsFriend(realName)) return;
-                    if (pl.health <= 0.0f) return;
+                    if (pl.health <= 0.0f && pl.maxHealth > 0.0f && pl.health != 20.0f) return;
                     if (aim->bots && (pl.isBot || pl.name.find("[NPC]") != std::string::npos || pl.name.find("[npc]") != std::string::npos)) return;
                     if (!aim->walls && !pl.canBeSeen && pl.distance > 3.5f) return;
 
-                    // Одна и та же точка используется для выбора цели и наведения:
-                    // по умолчанию центр головы, при включённом bodyAim — корпус.
+                    // Точка прицеливания: голова (1.62) или корпус (0.9)
+                    const double plH = pl.height > 0.5 ? pl.height : 1.8;
                     const double targetHeight = std::max(0.6, std::min(
-                        pl.height * (aim->bodyAim ? 0.5 : 0.9),
+                        plH * (aim->bodyAim ? 0.5 : 0.9),
                         aim->bodyAim ? 0.9 : 1.62));
                     BloodAim::Point targetPos{ pl.pos.x, pl.pos.y + targetHeight, pl.pos.z };
                     float score = BloodAim::MouseDistanceToPoint(targetPos, eyePosition, yaw, pitch);
@@ -1018,9 +1015,6 @@ void GUIManager::Render(HDC hdc) {
                     // что и камера. Предикт добавляем отдельно от этой точки,
                     // только по фактическому перемещению между тиками.
                     BloodAim::Point position{ bestTarget->pos.x, bestTarget->pos.y, bestTarget->pos.z };
-                    // Treat the sliders as lead strength rather than literal
-                    // tick counts. Large values like 6.5/2.0 previously moved
-                    // the aim point several blocks ahead or above the entity.
                     const double horizontalLead = std::clamp(static_cast<double>(aim->predict) * 0.1, 0.0, 1.0);
                     const double verticalLead = std::clamp(static_cast<double>(aim->vPredict) * 0.1, 0.0, 0.2);
                     double leadX = (bestTarget->rawPos.x - bestTarget->prevTick.x) * horizontalLead;
@@ -1035,8 +1029,9 @@ void GUIManager::Render(HDC hdc) {
                     position.y += std::clamp(
                         (bestTarget->rawPos.y - bestTarget->prevTick.y) * verticalLead,
                         -0.15, 0.15);
+                    const double bH = bestTarget->height > 0.5 ? bestTarget->height : 1.8;
                     position.y += std::max(0.6, std::min(
-                        bestTarget->height * (aim->bodyAim ? 0.5 : 0.9),
+                        bH * (aim->bodyAim ? 0.5 : 0.9),
                         aim->bodyAim ? 0.9 : 1.62));
                     auto facing = BloodAim::FacePoint(position, eyePosition);
 
@@ -1044,32 +1039,27 @@ void GUIManager::Render(HDC hdc) {
                         float finalYaw = facing.yaw;
                         float finalPitch = facing.pitch;
 
-                        // Сглаживаем по времени, поэтому скорость не зависит от FPS.
-                        // 1 — моментальный snap (100% за кадр), 2..7 — плавная интерполяция
+                        // Сглаживание: 1 — мгновенная наводка (snap), 2..7 — плавная интерполяция
                         const DWORD now = GetTickCount();
-                        const DWORD elapsedMs = lastAimUpdate == 0 ? 16 : now - lastAimUpdate;
-                        if (lastAimUpdate == 0 || elapsedMs >= 8) {
-                            lastAimUpdate = now;
-                            const float smooth = std::clamp(aim->smoothness, 1.0f, 7.0f);
-                            if (smooth <= 1.05f) {
-                                finalYaw = facing.yaw;
-                                finalPitch = facing.pitch;
-                            } else {
-                                const float dt = std::clamp(static_cast<float>(elapsedMs) / 1000.0f, 0.008f, 0.05f);
-                                const float response = 20.0f / smooth;
-                                const float alpha = std::clamp(1.0f - std::exp(-response * dt), 0.05f, 1.0f);
-                                finalYaw = yaw + static_cast<float>(BloodAim::Wrap(facing.yaw - yaw)) * alpha;
-                                finalPitch = pitch + static_cast<float>(BloodAim::Wrap(facing.pitch - pitch)) * alpha;
-                            }
+                        const DWORD elapsedMs = lastAimUpdate == 0 ? 16 : (now - lastAimUpdate);
+                        lastAimUpdate = now;
 
-                            finalPitch = std::clamp(finalPitch, -90.0f, 90.0f);
-                            JVMBridge::Get().SetPlayerRotation(finalYaw, finalPitch);
+                        const float smooth = std::clamp(aim->smoothness, 1.0f, 7.0f);
+                        if (smooth > 1.05f) {
+                            const float dt = std::clamp(static_cast<float>(elapsedMs) / 1000.0f, 0.005f, 0.05f);
+                            const float response = 20.0f / smooth;
+                            const float alpha = std::clamp(1.0f - std::exp(-response * dt), 0.05f, 1.0f);
+                            finalYaw = yaw + static_cast<float>(BloodAim::Wrap(facing.yaw - yaw)) * alpha;
+                            finalPitch = pitch + static_cast<float>(BloodAim::Wrap(facing.pitch - pitch)) * alpha;
                         }
 
+                        finalPitch = std::clamp(finalPitch, -90.0f, 90.0f);
+                        JVMBridge::Get().SetPlayerRotation(finalYaw, finalPitch);
+
                         if (aim->autoShoot && aim->ticks > 2) {
-                            DWORD now = GetTickCount();
-                            if (now - aim->lastShootTime >= 100) {
-                                aim->lastShootTime = now;
+                            DWORD shootNow = GetTickCount();
+                            if (shootNow - aim->lastShootTime >= 100) {
+                                aim->lastShootTime = shootNow;
                                 JVMBridge::Get().PlayerSwingArm();
                             }
                         }
@@ -1099,7 +1089,7 @@ void GUIManager::Render(HDC hdc) {
                 s_lastTargetFoundTime = now;
                 s_cachedBlockPos = bPos;
                 s_cachedAimPos = aPos;
-            } else if (now - s_lastTargetFoundTime < 350 && (s_cachedAimPos.x != 0.0 || s_cachedAimPos.z != 0.0)) {
+            } else if (now - s_lastTargetFoundTime < 600 && (s_cachedAimPos.x != 0.0 || s_cachedAimPos.z != 0.0)) {
                 // Сервер переносит крест на соседнюю грань руды: удерживаем прицел и ждём новый маркер
                 hasTarget = true;
                 bPos = s_cachedBlockPos;

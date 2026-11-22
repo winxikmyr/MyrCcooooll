@@ -5423,7 +5423,7 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
             jmethodID mGet = env->GetMethodID(cList, "get", "(I)Ljava/lang/Object;");
 
             int eCount = (mSize && mGet) ? env->CallIntMethod(entList, mSize) : 0;
-            if (eCount > 512) eCount = 512;
+            if (eCount > 2048) eCount = 2048;
 
             jmethodID mGetItem = cEntityItem ? env->GetMethodID(cEntityItem, "l", "()Laip;") : nullptr;
             if (!mGetItem && cEntityItem) { env->ExceptionClear(); mGetItem = env->GetMethodID(cEntityItem, "k", "()Laip;"); }

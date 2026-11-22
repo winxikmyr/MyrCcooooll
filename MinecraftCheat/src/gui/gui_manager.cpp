@@ -498,11 +498,11 @@ void GUIManager::Render(HDC hdc) {
                     draw->AddText(font, fontSize, nPos, IM_COL32(255, 255, 255, 255), fullTag);
                 }
 
-                // Отрисовка иконки предмета: mc.getRenderItem().renderItemAndEffectIntoGUI(item, (int) drawX - 2, (int) drawY)
+                // Отрисовка иконки предмета: центрирована строго сверху предмета
                 if (esp->drawIcon) {
                     float iconSz = std::clamp(esp->iconSize, 8.0f, 64.0f);
-                    float ix = drawX - 2.0f;
-                    float iy = drawY;
+                    float ix = static_cast<float>(posX + (endPosX - posX) * 0.5f - iconSz * 0.5f);
+                    float iy = static_cast<float>(posY - iconSz - 2.0f);
 
                     bool drawn = false;
                     if (atlasId > 0 && item.hasIcon && (item.maxU > item.minU) && (item.maxV > item.minV)) {

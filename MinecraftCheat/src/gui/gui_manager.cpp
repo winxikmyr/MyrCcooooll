@@ -457,9 +457,7 @@ void GUIManager::Render(HDC hdc) {
                 if (tag.rfind("item.", 0) == 0) tag = tag.substr(5);
                 if (tag.rfind("tile.", 0) == 0) tag = tag.substr(5);
 
-                float distanceScale = std::clamp(1.0f + item.distance * 0.0025f * esp->distantFontBoost, 1.0f, 2.5f);
-                float fontSize = (font ? font->FontSize * 0.72f : 12.f) *
-                    std::clamp(esp->labelScaleMul, 0.35f, 2.8f) * distanceScale;
+                float fontSize = (font ? font->FontSize * 0.72f : 12.f);
                 ImVec2 tagTextSize = font ? font->CalcTextSizeA(fontSize, FLT_MAX, 0.f, tag.c_str()) : ImVec2(30.f, 12.f);
                 float tagWidth = tagTextSize.x;
 
@@ -474,7 +472,7 @@ void GUIManager::Render(HDC hdc) {
                 snprintf(dis, sizeof(dis), "%.1f м", item.distance);
 
                 // Fonts.nunito12.drawStringWithOutline(dis, drawX + 14, drawY + 3, -1)
-                if (esp->drawDistance && !esp->drawIconOnly && font) {
+                if (esp->drawDistance && font) {
                     ImVec2 dPos(drawX + 14.0f, drawY + 3.0f);
                     draw->AddText(font, fontSize, ImVec2(dPos.x - 1.f, dPos.y), IM_COL32(0, 0, 0, 255), dis);
                     draw->AddText(font, fontSize, ImVec2(dPos.x + 1.f, dPos.y), IM_COL32(0, 0, 0, 255), dis);
@@ -484,7 +482,7 @@ void GUIManager::Render(HDC hdc) {
                 }
 
                 // Отрисовка имени предмета с контуром (если включено drawName)
-                if (esp->drawName && !esp->drawIconOnly && font) {
+                if (esp->drawName && font) {
                     char fullTag[128];
                     if (item.count > 1) snprintf(fullTag, sizeof(fullTag), "%s x%d", tag.c_str(), item.count);
                     else snprintf(fullTag, sizeof(fullTag), "%s", tag.c_str());
@@ -500,7 +498,7 @@ void GUIManager::Render(HDC hdc) {
 
                 // Отрисовка иконки предмета: mc.getRenderItem().renderItemAndEffectIntoGUI(item, (int) drawX - 2, (int) drawY)
                 if (esp->drawIcon) {
-                    float iconSz = std::clamp(esp->iconSize, 8.0f, 64.0f);
+                    float iconSz = (esp->iconSize >= 8.0f && esp->iconSize <= 64.0f) ? esp->iconSize : 16.0f;
                     float ix = drawX - 2.0f;
                     float iy = drawY;
 
@@ -958,7 +956,7 @@ void GUIManager::Render(HDC hdc) {
                 lastAimUpdate = 0;
             } else {
                 double myEyeX = (mcData.playerPos.x != 0.0) ? mcData.playerPos.x : mcData.camPos.x;
-                double myEyeY = (mcData.playerPos.y != 0.0) ? (mcData.playerPos.y + 1.62) : (mcData.camPos.y + 1.62);
+                double myEyeY = (mcData.playerPos.y != 0.0) ? (mcData.playerPos.y + 1.62) : mcData.camPos.y;
                 double myEyeZ = (mcData.playerPos.z != 0.0) ? mcData.playerPos.z : mcData.camPos.z;
                 BloodAim::Point eyePosition{ myEyeX, myEyeY, myEyeZ };
                 float yaw = mcData.camYaw;

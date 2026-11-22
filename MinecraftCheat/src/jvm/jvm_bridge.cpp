@@ -5401,7 +5401,7 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
             jmethodID mGet = env->GetMethodID(cList, "get", "(I)Ljava/lang/Object;");
 
             int eCount = (mSize && mGet) ? env->CallIntMethod(entList, mSize) : 0;
-            if (eCount > 512) eCount = 512;
+            if (eCount > 2048) eCount = 2048;
 
             jmethodID mGetItem = cEntityItem ? env->GetMethodID(cEntityItem, "l", "()Laip;") : nullptr;
             if (!mGetItem && cEntityItem) { env->ExceptionClear(); mGetItem = env->GetMethodID(cEntityItem, "k", "()Laip;"); }
@@ -6811,6 +6811,44 @@ void JVMBridge::SendDiggingPacket(int x, int y, int z, int facing) {
                 }
                 env->DeleteLocalRef(cPl);
                 env->DeleteLocalRef(player);
+            }
+        }
+
+        // 2. PlayerControllerMP: onPlayerDamageBlock (bsa.b) & clickBlock (bsa.a) для непрерывного копания
+        jfieldID fPC = env->GetFieldID(cMC, "c", "Lbsa;");
+        if (!fPC) { env->ExceptionClear(); fPC = env->GetFieldID(cMC, "playerController", "Lnet/minecraft/client/multiplayer/PlayerControllerMP;"); }
+        if (!fPC) { env->ExceptionClear(); fPC = env->GetFieldID(cMC, "field_71442_b", "Lnet/minecraft/client/multiplayer/PlayerControllerMP;"); }
+        if (fPC) {
+            jobject pc = env->GetObjectField(mc, fPC);
+            if (pc && !env->ExceptionCheck()) {
+                jclass cPC = env->GetObjectClass(pc);
+
+                // onPlayerDamageBlock(pos, side) -> bsa.b(et, fa)
+                jmethodID mDamageBlock = env->GetMethodID(cPC, "b", "(Let;Lfa;)Z");
+                if (!mDamageBlock) { env->ExceptionClear(); mDamageBlock = env->GetMethodID(cPC, "onPlayerDamageBlock", "(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/EnumFacing;)Z"); }
+                if (!mDamageBlock) { env->ExceptionClear(); mDamageBlock = env->GetMethodID(cPC, "func_180512_c", "(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/EnumFacing;)Z"); }
+                if (mDamageBlock) {
+                    env->CallBooleanMethod(pc, mDamageBlock, blockPos, facingObj);
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                }
+
+                // clickBlock(pos, side) -> bsa.a(et, fa)
+                jmethodID mClickBlock = env->GetMethodID(cPC, "a", "(Let;Lfa;)Z");
+                if (!mClickBlock) { env->ExceptionClear(); mClickBlock = env->GetMethodID(cPC, "clickBlock", "(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/EnumFacing;)Z"); }
+                if (!mClickBlock) { env->ExceptionClear(); mClickBlock = env->GetMethodID(cPC, "func_180511_b", "(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/EnumFacing;)Z"); }
+                if (mClickBlock) {
+                    env->CallBooleanMethod(pc, mClickBlock, blockPos, facingObj);
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                }
+
+                // Сброс задержки blockHitDelay = 0 (bsa.d)
+                jfieldID fDelay = env->GetFieldID(cPC, "d", "I");
+                if (!fDelay) { env->ExceptionClear(); fDelay = env->GetFieldID(cPC, "blockHitDelay", "I"); }
+                if (!fDelay) { env->ExceptionClear(); fDelay = env->GetFieldID(cPC, "field_78781_i", "I"); }
+                if (fDelay) env->SetIntField(pc, fDelay, 0);
+
+                env->DeleteLocalRef(cPC);
+                env->DeleteLocalRef(pc);
             }
         }
 

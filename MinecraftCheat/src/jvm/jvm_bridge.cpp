@@ -3263,6 +3263,7 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
 
     if (cSlot) {
         jmethodID mGetSlot = env->GetMethodID(cPlayer, "b", "(Lvl;)Laip;");
+        if (!mGetSlot) { env->ExceptionClear(); mGetSlot = env->GetMethodID(cPlayer, "a", "(Lvl;)Laip;"); }
         if (!mGetSlot) { env->ExceptionClear(); mGetSlot = env->GetMethodID(cPlayer, "getItemStackFromSlot", "(Lnet/minecraft/inventory/EntityEquipmentSlot;)Lnet/minecraft/item/ItemStack;"); }
         if (!mGetSlot) { env->ExceptionClear(); mGetSlot = env->GetMethodID(cPlayer, "func_184582_a", "(Lnet/minecraft/inventory/EntityEquipmentSlot;)Lnet/minecraft/item/ItemStack;"); }
 
@@ -3328,6 +3329,56 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
     }
 
     jobject inv = env->GetObjectField(player, fInv);
+
+    // Резервный поиск надетой брони через inventoryContainer / openContainer (слоты 5..8: 5=шлем, 6=нагрудник, 7=поножи, 8=ботинки):
+    // Гарантирует считывание брони даже если сервер или кастомные плагины модифицируют слоты контейнера игрока
+    for (int i = 0; i < 4; ++i) {
+        if (m_data.equipment[i].isEmpty) {
+            // Container fields in EntityPlayer:
+            // inventoryContainer: field_71069_bz / bz / bu / bv
+            // openContainer: field_71070_bA / bA / bv / bw
+            const char* contFields[] = { "inventoryContainer", "field_71069_bz", "bz", "openContainer", "field_71070_bA", "bA", "bv" };
+            jobject contObj = nullptr;
+            for (const char* cf : contFields) {
+                jfieldID fCont = env->GetFieldID(cPlayer, cf, "Lnet/minecraft/inventory/Container;");
+                if (!fCont) { env->ExceptionClear(); fCont = env->GetFieldID(cPlayer, cf, "Lapv;"); }
+                if (fCont) {
+                    contObj = env->GetObjectField(player, fCont);
+                    if (env->ExceptionCheck()) { env->ExceptionClear(); contObj = nullptr; }
+                    if (contObj) break;
+                } else env->ExceptionClear();
+            }
+
+            if (contObj) {
+                jclass cCont = env->GetObjectClass(contObj);
+                jmethodID mGetSlotCont = env->GetMethodID(cCont, "a", "(I)Laet;");
+                if (!mGetSlotCont) { env->ExceptionClear(); mGetSlotCont = env->GetMethodID(cCont, "getSlot", "(I)Lnet/minecraft/inventory/Slot;"); }
+                if (!mGetSlotCont) { env->ExceptionClear(); mGetSlotCont = env->GetMethodID(cCont, "func_75139_a", "(I)Lnet/minecraft/inventory/Slot;"); }
+                if (mGetSlotCont) {
+                    jobject slotObj = env->CallObjectMethod(contObj, mGetSlotCont, 5 + i);
+                    if (slotObj && !env->ExceptionCheck()) {
+                        jclass cSlotCls = env->GetObjectClass(slotObj);
+                        jmethodID mGetStack = env->GetMethodID(cSlotCls, "d", "()Laip;");
+                        if (!mGetStack) { env->ExceptionClear(); mGetStack = env->GetMethodID(cSlotCls, "getStack", "()Lnet/minecraft/item/ItemStack;"); }
+                        if (!mGetStack) { env->ExceptionClear(); mGetStack = env->GetMethodID(cSlotCls, "func_75211_c", "()Lnet/minecraft/item/ItemStack;"); }
+                        if (mGetStack) {
+                            jobject slotStack = env->CallObjectMethod(slotObj, mGetStack);
+                            if (slotStack && !env->ExceptionCheck()) {
+                                ParseItemStackHelper(env, mcInst, slotStack, m_data.equipment[i]);
+                                if (!m_data.equipment[i].isEmpty) armorReadViaSlot = true;
+                                env->DeleteLocalRef(slotStack);
+                            } else env->ExceptionClear();
+                        }
+                        env->DeleteLocalRef(cSlotCls);
+                        env->DeleteLocalRef(slotObj);
+                    } else env->ExceptionClear();
+                }
+                env->DeleteLocalRef(cCont);
+                env->DeleteLocalRef(contObj);
+            }
+        }
+    }
+
     env->DeleteLocalRef(cPlayer);
     env->DeleteLocalRef(player);
 
@@ -3368,7 +3419,7 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
     jclass cList = env->FindClass("java/util/List");
     jmethodID mGetItem = cList ? env->GetMethodID(cList, "get", "(I)Ljava/lang/Object;") : nullptr;
 
-    // Броня: если не прочитана через EntityEquipmentSlot, читаем через armorInventory
+    // Броня: если не прочитана через EntityEquipmentSlot / Container, читаем через armorInventory
     if (!armorReadViaSlot) {
         if (fArmor && mGetItem) {
             jobject armorList = env->GetObjectField(inv, fArmor);
@@ -3392,13 +3443,56 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
     // Запасной вариант UV спрайта для надетой брони (если иконка не определилась или слетела)
     for (int i = 0; i < 4; ++i) {
         if (!m_data.equipment[i].isEmpty && !m_data.equipment[i].hasIcon) {
+            std::string nLow = m_data.equipment[i].name;
+            for (char& c : nLow) c = static_cast<char>(tolower(c));
             const char* fbSprite = nullptr;
-            if (i == 0) fbSprite = "minecraft:items/leather_helmet";
-            else if (i == 1) fbSprite = "minecraft:items/leather_chestplate";
-            else if (i == 2) fbSprite = "minecraft:items/leather_leggings";
-            else if (i == 3) fbSprite = "minecraft:items/leather_boots";
+            if (i == 0) {
+                if (nLow.find("metal") != std::string::npos || nLow.find("метал") != std::string::npos || nLow.find("facemask") != std::string::npos || nLow.find("маск") != std::string::npos) {
+                    fbSprite = "icons/metal_facemask";
+                } else if (nLow.find("coffeecan") != std::string::npos || nLow.find("кофей") != std::string::npos) {
+                    fbSprite = "icons/coffeecan_helmet";
+                } else {
+                    fbSprite = "minecraft:items/iron_helmet";
+                }
+            } else if (i == 1) {
+                if (nLow.find("metal") != std::string::npos || nLow.find("метал") != std::string::npos || nLow.find("plate") != std::string::npos) {
+                    fbSprite = "icons/metal_plate_torso";
+                } else if (nLow.find("roadsign") != std::string::npos || nLow.find("знак") != std::string::npos) {
+                    fbSprite = "icons/roadsign_jacket";
+                } else if (nLow.find("wood") != std::string::npos || nLow.find("дерев") != std::string::npos) {
+                    fbSprite = "icons/wood_armor_torso";
+                } else {
+                    fbSprite = "minecraft:items/iron_chestplate";
+                }
+            } else if (i == 2) {
+                if (nLow.find("roadsign") != std::string::npos || nLow.find("знак") != std::string::npos || nLow.find("kilt") != std::string::npos) {
+                    fbSprite = "icons/roadsign_kilt";
+                } else if (nLow.find("metal") != std::string::npos || nLow.find("метал") != std::string::npos) {
+                    fbSprite = "icons/metal_pants";
+                } else if (nLow.find("wood") != std::string::npos || nLow.find("дерев") != std::string::npos) {
+                    fbSprite = "icons/wood_armor_pants";
+                } else {
+                    fbSprite = "minecraft:items/iron_leggings";
+                }
+            } else if (i == 3) {
+                if (nLow.find("work") != std::string::npos || nLow.find("раб") != std::string::npos) {
+                    fbSprite = "icons/shoes_workboots";
+                } else if (nLow.find("burlap") != std::string::npos || nLow.find("мешковин") != std::string::npos) {
+                    fbSprite = "icons/burlap_shoes";
+                } else {
+                    fbSprite = "icons/shoes_boots";
+                }
+            }
             if (fbSprite) {
                 m_data.equipment[i].hasIcon = QuerySpriteByName(env, mcInst, fbSprite,
+                    m_data.equipment[i].minU, m_data.equipment[i].maxU,
+                    m_data.equipment[i].minV, m_data.equipment[i].maxV);
+            }
+            if (!m_data.equipment[i].hasIcon) {
+                const char* fallbackVanilla = (i == 0) ? "minecraft:items/iron_helmet" :
+                                              (i == 1) ? "minecraft:items/iron_chestplate" :
+                                              (i == 2) ? "minecraft:items/iron_leggings" : "minecraft:items/iron_boots";
+                m_data.equipment[i].hasIcon = QuerySpriteByName(env, mcInst, fallbackVanilla,
                     m_data.equipment[i].minU, m_data.equipment[i].maxU,
                     m_data.equipment[i].minV, m_data.equipment[i].maxV);
             }
@@ -4082,11 +4176,11 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
         double clipY = eyeX * P[1] + eyeY * P[5] + eyeZ * P[9]  + eyeW * P[13];
         double clipW = eyeX * P[3] + eyeY * P[7] + eyeZ * P[11] + eyeW * P[15];
 
-        if (clipW > 0.01) {
+        if (clipW > 0.05) {
             double ndcX = clipX / clipW;
             double ndcY = clipY / clipW;
 
-            if (fabs(ndcX) <= 10.0 && fabs(ndcY) <= 10.0) {
+            if (fabs(ndcX) <= 1.25 && fabs(ndcY) <= 1.25) {
                 double centerX = disp.x * 0.5;
                 double centerY = disp.y * 0.5;
                 double screenX = centerX + ndcX * centerX;

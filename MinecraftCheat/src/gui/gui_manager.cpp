@@ -1026,7 +1026,8 @@ void GUIManager::Render(HDC hdc) {
                     // Предикт движения (Predict) и вертикальная поправка (V-Predict)
                     // 1. Predict (горизонтальное упреждение по движению цели):
                     if (aim->predict > 0.01f) {
-                        const double leadMul = static_cast<double>(aim->predict) * 0.15;
+                        // Динамическое упреждение на опережение с учетом дистанции
+                        const double leadMul = static_cast<double>(aim->predict) * (0.45 + bestTarget->distance * 0.015);
                         double vx = (bestTarget->vel.x != 0.0) ? bestTarget->vel.x : (bestTarget->rawPos.x - bestTarget->prevTick.x);
                         double vz = (bestTarget->vel.z != 0.0) ? bestTarget->vel.z : (bestTarget->rawPos.z - bestTarget->prevTick.z);
 

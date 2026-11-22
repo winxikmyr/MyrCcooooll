@@ -3857,39 +3857,6 @@ void JVMBridge::UpdateRenderMatrices(JNIEnv* env) {
             if (env->ExceptionCheck()) { env->ExceptionClear(); rmObj = nullptr; }
         }
 
-        // Приоритет №1: читаем точную субпиксельную позицию камеры из ActiveRenderInfo.position (bhv.e)
-        if (s_cBHV) {
-            static jfieldID s_fBHV_e = env->GetStaticFieldID(s_cBHV, "e", "Lbhe;");
-            if (!s_fBHV_e) { env->ExceptionClear(); s_fBHV_e = env->GetStaticFieldID(s_cBHV, "position", "Lnet/minecraft/util/math/Vec3d;"); }
-            if (!s_fBHV_e) { env->ExceptionClear(); s_fBHV_e = env->GetStaticFieldID(s_cBHV, "field_178811_e", "Lnet/minecraft/util/math/Vec3d;"); }
-            if (s_fBHV_e) {
-                jobject vecObj = env->GetStaticObjectField(s_cBHV, s_fBHV_e);
-                if (vecObj && !env->ExceptionCheck()) {
-                    jclass cVec = env->GetObjectClass(vecObj);
-                    jfieldID fVX = env->GetFieldID(cVec, "b", "D");
-                    if (!fVX) { env->ExceptionClear(); fVX = env->GetFieldID(cVec, "x", "D"); }
-                    jfieldID fVY = env->GetFieldID(cVec, "c", "D");
-                    if (!fVY) { env->ExceptionClear(); fVY = env->GetFieldID(cVec, "y", "D"); }
-                    jfieldID fVZ = env->GetFieldID(cVec, "d", "D");
-                    if (!fVZ) { env->ExceptionClear(); fVZ = env->GetFieldID(cVec, "z", "D"); }
-                    if (fVX && fVY && fVZ) {
-                        double vx = env->GetDoubleField(vecObj, fVX);
-                        double vy = env->GetDoubleField(vecObj, fVY);
-                        double vz = env->GetDoubleField(vecObj, fVZ);
-                        if (vx != 0.0 || vy != 0.0 || vz != 0.0) {
-                            m_data.camPos.x = vx;
-                            m_data.camPos.y = vy;
-                            m_data.camPos.z = vz;
-                            m_camPos = m_data.camPos;
-                            gotCam = true;
-                        }
-                    }
-                    env->DeleteLocalRef(cVec);
-                    env->DeleteLocalRef(vecObj);
-                } else env->ExceptionClear();
-            }
-        }
-
         if (rmObj) {
             if (s_fRM_viewerPosX && s_fRM_viewerPosY && s_fRM_viewerPosZ) {
                 double rx = env->GetDoubleField(rmObj, s_fRM_viewerPosX);
@@ -3897,13 +3864,11 @@ void JVMBridge::UpdateRenderMatrices(JNIEnv* env) {
                 double rz = env->GetDoubleField(rmObj, s_fRM_viewerPosZ);
                 if (rx != 0.0 || ry != 0.0 || rz != 0.0) {
                     rmViewerPosY = ry;
-                    if (!gotCam) {
-                        m_data.camPos.x = rx;
-                        m_data.camPos.y = ry + s_lastEyeHeight; // viewerPosY в RenderManager — уровень ног; добавляем высоту глаз
-                        m_data.camPos.z = rz;
-                        m_camPos = m_data.camPos;
-                        gotCam = true;
-                    }
+                    m_data.camPos.x = rx;
+                    m_data.camPos.y = ry + s_lastEyeHeight; // viewerPosY в RenderManager — уровень ног; добавляем высоту глаз
+                    m_data.camPos.z = rz;
+                    m_camPos = m_data.camPos;
+                    gotCam = true;
                 }
             }
             env->DeleteLocalRef(rmObj);
@@ -4161,6 +4126,17 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
     if (m_data.thirdPersonView == 2) return false;
 
     Vec3 eyeCam = m_data.camPos;
+    if (m_data.thirdPersonView == 1) {
+        constexpr double kPI = 3.14159265358979323846;
+        double yawRad   = m_data.camYaw * (kPI / 180.0);
+        double pitchRad = m_data.camPitch * (kPI / 180.0);
+        double fx = -sin(yawRad) * cos(pitchRad);
+        double fy = -sin(pitchRad);
+        double fz =  cos(yawRad) * cos(pitchRad);
+        eyeCam.x -= fx * 4.0;
+        eyeCam.y -= fy * 4.0;
+        eyeCam.z -= fz * 4.0;
+    }
     double dx = worldPos.x - eyeCam.x;
     double dy = worldPos.y - eyeCam.y;
     double dz = worldPos.z - eyeCam.z;
@@ -4222,13 +4198,6 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
     if (m_data.thirdPersonView == 0) {
         double dotH = -dx * sinY + dz * cosY;
         if (dotH <= 0.01) return false;
-    } else if (m_data.thirdPersonView == 1) {
-        eyeCam.x -= fx * 4.0;
-        eyeCam.y -= fy * 4.0;
-        eyeCam.z -= fz * 4.0;
-        dx = worldPos.x - eyeCam.x;
-        dy = worldPos.y - eyeCam.y;
-        dz = worldPos.z - eyeCam.z;
     }
 
     double xCam = dx * rx + dy * ry + dz * rz;
@@ -4447,31 +4416,77 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
     float myPitch = prevPitch + (curPitch - prevPitch) * pt;
 
     m_data.playerPos = { myInterpX, myInterpY, myInterpZ };
+    m_data.camYaw = myYaw;
+    m_data.camPitch = myPitch;
 
-    // Если позиция камеры ещё не обновлена RenderManager в UpdateRenderMatrices, инициализируем её
-    if (m_data.camPos.x == 0.0 && m_data.camPos.y == 0.0 && m_data.camPos.z == 0.0) {
-        jmethodID mEyeH = (cEntity && localPlayer) ? env->GetMethodID(cEntity, "by", "()F") : nullptr;
-        if (!mEyeH && cEntity) { env->ExceptionClear(); mEyeH = env->GetMethodID(cEntity, "getEyeHeight", "()F"); }
-        if (!mEyeH && cEntity) { env->ExceptionClear(); mEyeH = env->GetMethodID(cEntity, "func_70047_e", "()F"); }
-        float eyeH = (mEyeH && localPlayer) ? env->CallFloatMethod(localPlayer, mEyeH) : (fHeight ? (myHeight * 0.85f) : 1.62f);
+    jmethodID mEyeH = (cEntity && localPlayer) ? env->GetMethodID(cEntity, "by", "()F") : nullptr;
+    if (!mEyeH && cEntity) { env->ExceptionClear(); mEyeH = env->GetMethodID(cEntity, "getEyeHeight", "()F"); }
+    if (!mEyeH && cEntity) { env->ExceptionClear(); mEyeH = env->GetMethodID(cEntity, "func_70047_e", "()F"); }
+    float eyeH = (mEyeH && localPlayer) ? env->CallFloatMethod(localPlayer, mEyeH) : (fHeight ? (myHeight * 0.85f) : 1.62f);
+    s_lastEyeHeight = eyeH;
 
-        m_data.camYaw = myYaw;
-        m_data.camPitch = myPitch;
-        m_data.camPos.x = myInterpX;
-        m_data.camPos.y = myInterpY + eyeH;
-        m_data.camPos.z = myInterpZ;
-        m_camPos = m_data.camPos;
-    }
+    // Синхронизируем камеру с точной субтиковой позицией игрока
+    m_data.camPos.x = myInterpX;
+    m_data.camPos.y = myInterpY + eyeH;
+    m_data.camPos.z = myInterpZ;
+    m_camPos = m_data.camPos;
 
     jclass cWorld = env->GetObjectClass(world);
 
-    // Method canEntityBeSeen (1.12.2 EntityLivingBase: func_70685_l / D(vg)Z) для проверки стен в AimBot
+    // Method canEntityBeSeen (1.12.2 EntityLivingBase: func_70685_l / D(vg)Z / B / C / canEntityBeSeen) для проверки стен в AimBot
     jclass cLivingBase = FindMCClass(env, cl, "vp");
     if (!cLivingBase) cLivingBase = FindMCClass(env, cl, "net/minecraft/entity/EntityLivingBase");
-    jmethodID mCanBeSeen = cLivingBase ? env->GetMethodID(cLivingBase, "D", "(Lvg;)Z") : nullptr;
-    if (!mCanBeSeen && cLivingBase) { env->ExceptionClear(); mCanBeSeen = env->GetMethodID(cLivingBase, "func_70685_l", "(Lvg;)Z"); }
-    if (!mCanBeSeen && cLivingBase) { env->ExceptionClear(); mCanBeSeen = env->GetMethodID(cLivingBase, "canEntityBeSeen", "(Lnet/minecraft/entity/Entity;)Z"); }
-    if (!mCanBeSeen && cLivingBase) { env->ExceptionClear(); mCanBeSeen = env->GetMethodID(cLivingBase, "canEntityBeSeen", "(Lvg;)Z"); }
+    jmethodID mCanBeSeen = nullptr;
+    const char* canBeSeenNames[] = { "D", "C", "B", "E", "F", "func_70685_l", "canEntityBeSeen" };
+    if (cLivingBase) {
+        for (const char* name : canBeSeenNames) {
+            mCanBeSeen = env->GetMethodID(cLivingBase, name, "(Lvg;)Z");
+            if (mCanBeSeen && !env->ExceptionCheck()) break;
+            env->ExceptionClear();
+            mCanBeSeen = env->GetMethodID(cLivingBase, name, "(Lnet/minecraft/entity/Entity;)Z");
+            if (mCanBeSeen && !env->ExceptionCheck()) break;
+            env->ExceptionClear();
+        }
+    }
+    if (!mCanBeSeen && localPlayer) {
+        jclass cLP = env->GetObjectClass(localPlayer);
+        if (cLP) {
+            for (const char* name : canBeSeenNames) {
+                mCanBeSeen = env->GetMethodID(cLP, name, "(Lvg;)Z");
+                if (mCanBeSeen && !env->ExceptionCheck()) break;
+                env->ExceptionClear();
+                mCanBeSeen = env->GetMethodID(cLP, name, "(Lnet/minecraft/entity/Entity;)Z");
+                if (mCanBeSeen && !env->ExceptionCheck()) break;
+                env->ExceptionClear();
+            }
+            env->DeleteLocalRef(cLP);
+        }
+    }
+
+    // Fallback: rayTraceBlocks на World
+    jclass cVec = FindMCClass(env, cl, "bhe");
+    if (!cVec) cVec = FindMCClass(env, cl, "net/minecraft/util/math/Vec3d");
+    jmethodID mInitVec = cVec ? env->GetMethodID(cVec, "<init>", "(DDD)V") : nullptr;
+    if (env->ExceptionCheck()) { env->ExceptionClear(); mInitVec = nullptr; }
+
+    jmethodID mRayTrace = nullptr;
+    if (cWorld) {
+        const char* rtNames[] = { "a", "func_147447_a", "rayTraceBlocks" };
+        for (const char* rtn : rtNames) {
+            mRayTrace = env->GetMethodID(cWorld, rtn, "(Lbhe;Lbhe;ZZZ)Lbru;");
+            if (mRayTrace && !env->ExceptionCheck()) break;
+            env->ExceptionClear();
+            mRayTrace = env->GetMethodID(cWorld, rtn, "(Lbhe;Lbhe;)Lbru;");
+            if (mRayTrace && !env->ExceptionCheck()) break;
+            env->ExceptionClear();
+            mRayTrace = env->GetMethodID(cWorld, rtn, "(Lnet/minecraft/util/math/Vec3d;Lnet/minecraft/util/math/Vec3d;ZZZ)Lnet/minecraft/util/math/RayTraceResult;");
+            if (mRayTrace && !env->ExceptionCheck()) break;
+            env->ExceptionClear();
+            mRayTrace = env->GetMethodID(cWorld, rtn, "(Lnet/minecraft/util/math/Vec3d;Lnet/minecraft/util/math/Vec3d;)Lnet/minecraft/util/math/RayTraceResult;");
+            if (mRayTrace && !env->ExceptionCheck()) break;
+            env->ExceptionClear();
+        }
+    }
 
     // ── 1. Игроки (NameTags) ──────────────────────────────────────────────────
     std::vector<PlayerTagInfo> newPlayers;
@@ -5387,9 +5402,28 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                     }
                 }
 
-        // Метод EntityLivingBase.canEntityBeSeen(Entity)
-        tag.canBeSeen = (mCanBeSeen && localPlayer) ? (env->CallBooleanMethod(localPlayer, mCanBeSeen, pObj) == JNI_TRUE) : true;
-        if (env->ExceptionCheck()) { env->ExceptionClear(); tag.canBeSeen = true; }
+        // Метод EntityLivingBase.canEntityBeSeen(Entity) + rayTraceBlocks fallback
+        bool seen = true;
+        if (mCanBeSeen && localPlayer) {
+            seen = (env->CallBooleanMethod(localPlayer, mCanBeSeen, pObj) == JNI_TRUE);
+            if (env->ExceptionCheck()) { env->ExceptionClear(); seen = true; }
+        } else if (mRayTrace && cVec && mInitVec && world) {
+            jobject vStart = env->NewObject(cVec, mInitVec, myInterpX, myInterpY + eyeH, myInterpZ);
+            jobject vEnd = env->NewObject(cVec, mInitVec, pInterpX, pInterpY + pHeight * 0.85, pInterpZ);
+            if (vStart && vEnd && !env->ExceptionCheck()) {
+                jobject hit = env->CallObjectMethod(world, mRayTrace, vStart, vEnd, JNI_FALSE, JNI_TRUE, JNI_FALSE);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    hit = env->CallObjectMethod(world, mRayTrace, vStart, vEnd);
+                    if (env->ExceptionCheck()) { env->ExceptionClear(); hit = nullptr; }
+                }
+                seen = (hit == nullptr);
+                if (hit) env->DeleteLocalRef(hit);
+            }
+            if (vStart) env->DeleteLocalRef(vStart);
+            if (vEnd) env->DeleteLocalRef(vEnd);
+        }
+        tag.canBeSeen = seen;
 
         tag.rawPos = { px, py, pz };
         tag.lastRender = { pLastX, pLastY, pLastZ };
@@ -5601,8 +5635,27 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                         }
                         mTag.realName = mTag.name;
                         mTag.isBot = true;
-                        mTag.canBeSeen = (mCanBeSeen && localPlayer) ? (env->CallBooleanMethod(localPlayer, mCanBeSeen, eObj) == JNI_TRUE) : true;
-                        if (env->ExceptionCheck()) { env->ExceptionClear(); mTag.canBeSeen = true; }
+                        bool mobSeen = true;
+                        if (mCanBeSeen && localPlayer) {
+                            mobSeen = (env->CallBooleanMethod(localPlayer, mCanBeSeen, eObj) == JNI_TRUE);
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); mobSeen = true; }
+                        } else if (mRayTrace && cVec && mInitVec && world) {
+                            jobject vStart = env->NewObject(cVec, mInitVec, myInterpX, myInterpY + eyeH, myInterpZ);
+                            jobject vEnd = env->NewObject(cVec, mInitVec, mInterpX, mInterpY + (fHeight ? env->GetFloatField(eObj, fHeight) * 0.85 : 1.6), mInterpZ);
+                            if (vStart && vEnd && !env->ExceptionCheck()) {
+                                jobject hit = env->CallObjectMethod(world, mRayTrace, vStart, vEnd, JNI_FALSE, JNI_TRUE, JNI_FALSE);
+                                if (env->ExceptionCheck()) {
+                                    env->ExceptionClear();
+                                    hit = env->CallObjectMethod(world, mRayTrace, vStart, vEnd);
+                                    if (env->ExceptionCheck()) { env->ExceptionClear(); hit = nullptr; }
+                                }
+                                mobSeen = (hit == nullptr);
+                                if (hit) env->DeleteLocalRef(hit);
+                            }
+                            if (vStart) env->DeleteLocalRef(vStart);
+                            if (vEnd) env->DeleteLocalRef(vEnd);
+                        }
+                        mTag.canBeSeen = mobSeen;
                         if (mGetEntId) {
                             mTag.entId = env->CallIntMethod(eObj, mGetEntId);
                             if (env->ExceptionCheck()) { env->ExceptionClear(); mTag.entId = 0; }

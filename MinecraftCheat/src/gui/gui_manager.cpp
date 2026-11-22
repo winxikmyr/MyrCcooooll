@@ -979,8 +979,8 @@ void GUIManager::Render(HDC hdc) {
                     if (pl.health <= 0.0f && pl.maxHealth > 0.0f && pl.health != 20.0f) return;
                     // «Игнорировать ботов» (aim->bots): если включено — не наводимся на ботов/NPC
                     if (aim->bots && (pl.isBot || pl.name.find("[NPC]") != std::string::npos || pl.name.find("[npc]") != std::string::npos)) return;
-                    // «Сквозь стены» (aim->walls): если выключено — наводимся только если виден (или на дистанции < 3.5м)
-                    if (!aim->walls && !pl.canBeSeen && pl.distance > 3.5f) return;
+                    // «Сквозь стены» (aim->walls): если выключено — наводимся только если цель видна
+                    if (!aim->walls && !pl.canBeSeen) return;
 
                     // Точка прицеливания: корпус (центр масс 0.85-0.95м от ног) или голова (1.62м)
                     const double plH = pl.height > 0.5 ? pl.height : 1.8;

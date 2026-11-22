@@ -7,6 +7,7 @@ public:
     ModuleNameTags() : ModuleBase("NameTags", Category::VISUAL, /*defaultOn=*/true) {}
 
     float renderDistance = 256.0f; // Дистанция отображения
+    float yOffset        = 2.4f;   // Высота тега над головой игрока (в метрах)
     float fontScale      = 1.0f;   // Масштаб тега
     float armorScale     = 1.0f;   // Масштаб отображения брони (0.5x .. 2.5x)
     float bgOpacity      = 0.85f;  // Прозрачность фона

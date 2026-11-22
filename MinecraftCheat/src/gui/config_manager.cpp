@@ -124,6 +124,7 @@ std::string ConfigManager::SerializeToString(const ClickGUI* gui) {
     if (nt) {
         ss << "[NameTags_Settings]\n";
         ss << "renderDistance=" << nt->renderDistance << "\n";
+        ss << "yOffset=" << nt->yOffset << "\n";
         ss << "fontScale=" << nt->fontScale << "\n";
         ss << "armorScale=" << nt->armorScale << "\n";
         ss << "bgOpacity=" << nt->bgOpacity << "\n";
@@ -316,6 +317,7 @@ bool ConfigManager::DeserializeFromString(const std::string& data, ClickGUI* gui
     if (nt && kv.count("NameTags_Settings")) {
         auto& s = kv["NameTags_Settings"];
         if (s.count("renderDistance")) nt->renderDistance = std::stof(s["renderDistance"]);
+        if (s.count("yOffset")) nt->yOffset = std::stof(s["yOffset"]);
         if (s.count("fontScale")) nt->fontScale = std::stof(s["fontScale"]);
         if (s.count("armorScale")) nt->armorScale = std::stof(s["armorScale"]);
         if (s.count("bgOpacity")) nt->bgOpacity = std::stof(s["bgOpacity"]);

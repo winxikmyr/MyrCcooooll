@@ -158,15 +158,16 @@ void NameTags::Draw(const ModuleNameTags* settings) {
 
         // Прямая проекция точки над головой игрока (для спящих/сидящих игроков учитываем полную высоту)
         double effHeight = (player.height >= 1.0) ? player.height : 1.8;
-        // Поднимаем точку проекции ещё выше ванильного никнейма игрока (+1.45), чтобы NameTags всегда висел чисто НАД ником и не загораживал его
-        double pHeight = effHeight + 1.45 - (player.isSneaking ? 0.2 : 0.0);
+        // Поднимаем точку проекции по настраиваемому параметру yOffset (по дефолту 2.4м выше головы)
+        double offset = (settings ? settings->yOffset : 2.4);
+        double pHeight = effHeight + offset - (player.isSneaking ? 0.2 : 0.0);
         Vec3 headPos = { player.pos.x, player.pos.y + pHeight, player.pos.z };
         Vec2 scHead;
         bool projected = JVMBridge::Get().WorldToScreen(headPos, scHead);
         if (!projected) {
             // Верхняя точка может пересечь near plane при приближении или
             // camera bob. Проецируем точки от головы до корпуса, сохраняя тег.
-            const double fallbackHeights[] = { effHeight + 0.95, effHeight + 0.55, effHeight * 0.95, effHeight * 0.8, effHeight * 0.6, 0.2 };
+            const double fallbackHeights[] = { effHeight + offset * 0.7, effHeight + offset * 0.4, effHeight + 0.6, effHeight * 0.95, effHeight * 0.8, 0.2 };
             for (double h : fallbackHeights) {
                 if (JVMBridge::Get().WorldToScreen({ player.pos.x, player.pos.y + h, player.pos.z }, scHead)) {
                     projected = true;

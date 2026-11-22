@@ -1402,6 +1402,7 @@ void ClickGUI::DrawModuleSettings(ModuleBase* mod, float s) {
         auto* nt = dynamic_cast<ModuleNameTags*>(mod);
         if (nt) {
             DrawModernSliderFloat("Дистанция отображения", "##ntDist", &nt->renderDistance, 40.0f, 500.0f, "%.0f m", accent.primary, s);
+            DrawModernSliderFloat("Высота над игроком", "##ntHeight", &nt->yOffset, 0.0f, 6.0f, "%.2f m", accent.primary, s);
             DrawModernSliderFloat("Размер текста (Шрифт)", "##ntFontScale", &nt->fontScale, 0.5f, 3.0f, "%.2fx", accent.primary, s);
             DrawModernSliderFloat("Прозрачность плашки", "##ntOpacity", &nt->bgOpacity, 0.1f, 1.0f, "%.2f", accent.primary, s);
             ImGui::Spacing();

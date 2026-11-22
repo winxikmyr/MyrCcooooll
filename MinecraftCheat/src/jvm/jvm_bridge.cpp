@@ -3175,23 +3175,24 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
         bool iconResolved = false;
         float rU1 = 0.f, rU2 = 0.f, rV1 = 0.f, rV2 = 0.f;
 
-        // 1. ПРИОРИТЕТ: Поиск 2D иконки в серверном ресурс-паке!
-        // На серверах с кастомными ресурс-паками (Rust и др.) оружие и кастомные предметы часто
-        // имеют 3D-модели блоков/партиклов в RenderItem (vanillaOk), из-за чего иконка получается битой/темной.
-        // Поэтому для ВСЕХ предметов и оружия сначала опрашиваем TextureMap ресурс-пака:
-        if (QueryResourcePackSprite(env, mc, out.itemId, out.name, rU1, rU2, rV1, rV2)) {
-            out.minU = rU1; out.maxU = rU2;
-            out.minV = rV1; out.maxV = rV2;
-            out.hasIcon = true;
-            iconResolved = true;
-        }
-
-        // 2. Модель рендера Minecraft (QueryItemSpriteUV) - используется если ресурс-пак не вернул кастомную иконку
-        if (!iconResolved && vanillaOk && (vanillaMaxU > vanillaMinU) && (vanillaMaxV > vanillaMinV) && spLower != "missingno") {
+        // 1. ПРИОРИТЕТ: Настоящая модель и текстура Minecraft / OptiFine CIT (QueryItemSpriteUV)!
+        // В Minecraft OptiFine CIT и кастомные ресурспаки назначают уникальный спрайт (металл, знаки, сет)
+        // непосредственно модели RenderItem. Проверяем его первым делом!
+        if (vanillaOk && (vanillaMaxU > vanillaMinU) && (vanillaMaxV > vanillaMinV) && spLower != "missingno") {
             out.minU = vanillaMinU; out.maxU = vanillaMaxU;
             out.minV = vanillaMinV; out.maxV = vanillaMaxV;
             out.hasIcon = true;
             iconResolved = true;
+        }
+
+        // 2. Фоллбэк: Опрос текстурного атласа по названию кастомного предмета (для серверных 3D-предметов без квад-спрайта)
+        if (!iconResolved) {
+            if (QueryResourcePackSprite(env, mc, out.itemId, out.name, rU1, rU2, rV1, rV2)) {
+                out.minU = rU1; out.maxU = rU2;
+                out.minV = rV1; out.maxV = rV2;
+                out.hasIcon = true;
+                iconResolved = true;
+            }
         }
 
         // 3. Фоллбэк: ищем в атласе по имени ванильного предмета или itemId (картофель, хлеб, броня, инструменты и т.д.)

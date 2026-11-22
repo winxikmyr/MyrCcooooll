@@ -844,7 +844,7 @@ void GUIManager::RenderContentOnly() {
                     if (renderedCount >= 800) break;
 
                     double cx = blk.isEntity ? blk.pos.x : (blk.pos.x + 0.5);
-                    double cy = blk.isEntity ? (blk.pos.y + 0.4) : (blk.pos.y + 0.5);
+                    double cy = blk.isEntity ? (blk.pos.y + 1.4) : (blk.pos.y + 1.5);
                     double cz = blk.isEntity ? blk.pos.z : (blk.pos.z + 0.5);
                     double dx = cx - mcData.camPos.x;
                     double dy = cy - mcData.camPos.y;
@@ -854,12 +854,12 @@ void GUIManager::RenderContentOnly() {
 
                     Vec3 pMin, pMax;
                     if (blk.isEntity) {
-                        pMin = { blk.pos.x - 0.5, blk.pos.y, blk.pos.z - 0.5 };
-                        pMax = { blk.pos.x + 0.5, blk.pos.y + 1.0, blk.pos.z + 0.5 };
+                        pMin = { blk.pos.x - 0.5, blk.pos.y + 1.0, blk.pos.z - 0.5 };
+                        pMax = { blk.pos.x + 0.5, blk.pos.y + 2.0, blk.pos.z + 0.5 };
                     } else {
-                        pMin = blk.pos;
                         double height = (blk.name == "Peony" || blk.name == "Ткань") ? 2.0 : 1.0;
-                        pMax = { blk.pos.x + 1.0, blk.pos.y + height, blk.pos.z + 1.0 };
+                        pMin = { blk.pos.x, blk.pos.y + 1.0, blk.pos.z };
+                        pMax = { blk.pos.x + 1.0, blk.pos.y + 1.0 + height, blk.pos.z + 1.0 };
                     }
                     Vec3 c[8] = {
                         {pMin.x, pMin.y, pMin.z}, {pMax.x, pMin.y, pMin.z},

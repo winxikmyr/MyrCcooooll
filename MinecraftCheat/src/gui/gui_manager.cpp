@@ -591,30 +591,26 @@ void GUIManager::Render(HDC hdc) {
                 float dirX = static_cast<float>(sin(deltaRad));
                 float dirY = static_cast<float>(-cos(deltaRad));
 
-                float radius = arr->arrowRadius > 10.0f ? arr->arrowRadius : 60.0f;
+                float radius = arr->arrowRadius > 10.0f ? arr->arrowRadius : 70.0f;
                 float arrowX = center.x + dirX * radius;
                 float arrowY = center.y + dirY * radius;
 
-                // Крупнее контрастный маркер с мягким свечением
-                draw->AddCircleFilled(ImVec2(arrowX, arrowY), 16.0f, (arrowColor & 0x00FFFFFF) | 0x26000000, 24);
-                draw->AddCircleFilled(ImVec2(arrowX, arrowY), 12.0f, IM_COL32(9, 12, 20, 220), 24);
-                draw->AddCircle(ImVec2(arrowX, arrowY), 12.0f, IM_COL32(255, 255, 255, 85), 24, 1.2f);
-
-                // Наконечник указывает строго в направлении от центра к цели
-                float tipX = arrowX + dirX * 12.0f;
-                float tipY = arrowY + dirY * 12.0f;
+                // Наконечник указывает строго в направлении от центра к цели (без лишних кружков)
+                float tipX = arrowX + dirX * 14.0f;
+                float tipY = arrowY + dirY * 14.0f;
 
                 float perpX = -dirY;
                 float perpY =  dirX;
 
-                float baseLeftX  = arrowX - dirX * 5.0f + perpX * 7.0f;
-                float baseLeftY  = arrowY - dirY * 5.0f + perpY * 7.0f;
+                float baseLeftX  = arrowX - dirX * 6.0f + perpX * 9.0f;
+                float baseLeftY  = arrowY - dirY * 6.0f + perpY * 9.0f;
 
-                float baseRightX = arrowX - dirX * 5.0f - perpX * 7.0f;
-                float baseRightY = arrowY - dirY * 5.0f - perpY * 7.0f;
+                float baseRightX = arrowX - dirX * 6.0f - perpX * 9.0f;
+                float baseRightY = arrowY - dirY * 6.0f - perpY * 9.0f;
 
+                // Красивая четкая стрелочка с темным контуром
                 draw->AddTriangleFilled(ImVec2(tipX, tipY), ImVec2(baseLeftX, baseLeftY), ImVec2(baseRightX, baseRightY), arrowColor);
-                draw->AddTriangle(ImVec2(tipX, tipY), ImVec2(baseLeftX, baseLeftY), ImVec2(baseRightX, baseRightY), IM_COL32(7, 9, 15, 245), 1.4f);
+                draw->AddTriangle(ImVec2(tipX, tipY), ImVec2(baseLeftX, baseLeftY), ImVec2(baseRightX, baseRightY), IM_COL32(10, 12, 18, 255), 1.6f);
 
                 if (arr->showDistance && font) {
                     char dBuf[32];
@@ -622,17 +618,17 @@ void GUIManager::Render(HDC hdc) {
                     float tSz = font->FontSize * 0.65f;
                     ImVec2 tDim = font->CalcTextSizeA(tSz, FLT_MAX, 0.f, dBuf);
 
-                    float textR = arr->textRadius > 20.0f ? arr->textRadius : (radius + 18.0f);
+                    float textR = arr->textRadius > 20.0f ? arr->textRadius : (radius + 20.0f);
                     float textX = center.x + dirX * textR - tDim.x * 0.5f;
                     float textY = center.y + dirY * textR - tDim.y * 0.5f;
-                    const float padX = 6.0f;
-                    const float padY = 3.0f;
+                    const float padX = 5.0f;
+                    const float padY = 2.5f;
                     draw->AddRectFilled(ImVec2(textX - padX, textY - padY),
                                         ImVec2(textX + tDim.x + padX, textY + tDim.y + padY),
-                                        IM_COL32(9, 12, 20, 215), 6.0f);
+                                        IM_COL32(9, 12, 20, 215), 5.0f);
                     draw->AddRect(ImVec2(textX - padX, textY - padY),
                                   ImVec2(textX + tDim.x + padX, textY + tDim.y + padY),
-                                  IM_COL32(255, 255, 255, 55), 6.0f, 0, 1.0f);
+                                  IM_COL32(255, 255, 255, 55), 5.0f, 0, 1.0f);
                     draw->AddText(font, tSz, ImVec2(textX, textY), arrowColor, dBuf);
                 }
             }

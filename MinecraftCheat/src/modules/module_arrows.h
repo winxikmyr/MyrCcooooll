@@ -4,10 +4,10 @@
 
 class ModuleArrows : public ModuleBase {
 public:
-    float arrowRadius   = 60.0f; // Радиус отображения стрелочек от центра экрана
-    float textRadius    = 78.0f; // Радиус отображения текста дистанции
+    float arrowRadius   = 70.0f; // Радиус отображения стрелочек от центра экрана
+    float textRadius    = 92.0f; // Радиус отображения текста дистанции
     bool  showDistance  = true;
-    bool  onlyOffscreen = true;
+    bool  onlyOffscreen = false; // "всегда показывались"
     bool  ignoreBot     = true;
 
     ModuleArrows() : ModuleBase("Arrows", Category::VISUAL, false) {}

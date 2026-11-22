@@ -97,8 +97,8 @@ DWORD WINAPI StreamOverlay::OverlayThread(LPVOID lpParam) {
     }
     self->m_overlayHwnd = hwnd;
 
-    // Аппаратная прозрачность через DWM и ColorKey
-    SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 255, LWA_COLORKEY | LWA_ALPHA);
+    // Аппаратная прозрачность через DWM (полный прозрачный альфа-канал D3D9)
+    SetLayeredWindowAttributes(hwnd, 0, 0xFF, LWA_ALPHA);
     MARGINS margins = { -1, -1, -1, -1 };
     DwmExtendFrameIntoClientArea(hwnd, &margins);
 
@@ -137,6 +137,42 @@ DWORD WINAPI StreamOverlay::OverlayThread(LPVOID lpParam) {
     // Инициализация ImGui для DX9 оверлея
     ImGuiContext* overlayCtx = ImGui::CreateContext();
     ImGui::SetCurrentContext(overlayCtx);
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.LogFilename = nullptr;
+
+    ImFontConfig fontCfg;
+    fontCfg.OversampleH = 4;
+    fontCfg.OversampleV = 4;
+    fontCfg.PixelSnapH  = false;
+    fontCfg.RasterizerMultiply = 1.18f;
+
+    const char* fontCandidates[] = {
+        "C:\\Windows\\Fonts\\segoeuib.ttf",
+        "C:\\Windows\\Fonts\\segoeui.ttf",
+        "C:\\Windows\\Fonts\\tahomabd.ttf",
+        "C:\\Windows\\Fonts\\arialbd.ttf",
+        "C:\\Windows\\Fonts\\tahoma.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf"
+    };
+
+    bool fontLoaded = false;
+    for (const char* fpath : fontCandidates) {
+        if (GetFileAttributesA(fpath) != INVALID_FILE_ATTRIBUTES) {
+            io.Fonts->AddFontFromFileTTF(fpath, 17.5f, &fontCfg, io.Fonts->GetGlyphRangesCyrillic());
+            fontLoaded = true;
+            break;
+        }
+    }
+    if (!fontLoaded) {
+        io.Fonts->AddFontDefault();
+    }
+
+    GUIManager::Get().ApplyStyle();
+    ImGuiStyle& s = ImGui::GetStyle();
+    s.ScaleAllSizes(1.30f);
+
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX9_Init(pDevice);
 
@@ -171,12 +207,10 @@ DWORD WINAPI StreamOverlay::OverlayThread(LPVOID lpParam) {
 
         HWND fg = GetForegroundWindow();
         bool isFocused = (fg == target || fg == hwnd);
-        if (!isFocused) {
-            if (IsWindowVisible(hwnd)) ShowWindow(hwnd, SW_HIDE);
-            Sleep(16);
-            continue;
-        }
 
+        // Окно всегда должно оставаться видимым поверх игры в окне,
+        // даже если фокус временно переключен (например, клик по меню или дискорду),
+        // скрываем только когда игра реально свёрнута в панель задач (IsIconic)
         if (!IsWindowVisible(hwnd)) {
             ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         }

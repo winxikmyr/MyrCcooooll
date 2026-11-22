@@ -305,20 +305,12 @@ BOOL WINAPI Hooked_wglSwapBuffers(HDC hdc) {
         }
     }
 
-    BOOL res;
-    if (screenProtect) {
-        res = GLHook::Get().Original ? GLHook::Get().Original(hdc) : TRUE;
-
-        GLint prevDrawBuf = GL_BACK;
-        glGetIntegerv(GL_DRAW_BUFFER, &prevDrawBuf);
-        glDrawBuffer(GL_FRONT);
-        GUIManager::Get().Render(hdc);
-        glFlush();
-        glDrawBuffer(prevDrawBuf);
-    } else {
-        GUIManager::Get().Render(hdc);
-        res = GLHook::Get().Original ? GLHook::Get().Original(hdc) : TRUE;
-    }
+    // Отрисовка ImGui интерфейса и оверлеев
+    // При включенном ScreenProtect используем нормальный бэк-буфер перед Swap,
+    // а скрытие в OBS, Discord, AnyDesk и записи обеспечивается SetWindowDisplayAffinity(0x11 / WDA_EXCLUDEFROMCAPTURE).
+    // Рисование в GL_FRONT исключено, так как на современных драйверах OpenGL оно вызывало сильное мерцание экрана.
+    GUIManager::Get().Render(hdc);
+    BOOL res = GLHook::Get().Original ? GLHook::Get().Original(hdc) : TRUE;
 
     s_inSwapBuffersReentrancy = false;
     return res;
@@ -353,20 +345,8 @@ BOOL WINAPI Hooked_gdiSwapBuffers(HDC hdc) {
         }
     }
 
-    BOOL res;
-    if (screenProtect) {
-        res = GLHook::Get().OriginalGdiSwap ? GLHook::Get().OriginalGdiSwap(hdc) : TRUE;
-
-        GLint prevDrawBuf = GL_BACK;
-        glGetIntegerv(GL_DRAW_BUFFER, &prevDrawBuf);
-        glDrawBuffer(GL_FRONT);
-        GUIManager::Get().Render(hdc);
-        glFlush();
-        glDrawBuffer(prevDrawBuf);
-    } else {
-        GUIManager::Get().Render(hdc);
-        res = GLHook::Get().OriginalGdiSwap ? GLHook::Get().OriginalGdiSwap(hdc) : TRUE;
-    }
+    GUIManager::Get().Render(hdc);
+    BOOL res = GLHook::Get().OriginalGdiSwap ? GLHook::Get().OriginalGdiSwap(hdc) : TRUE;
 
     s_inSwapBuffersReentrancy = false;
     return res;
@@ -604,10 +584,13 @@ void __stdcall Hooked_nglScalef(void* env, void* clazz, float x, float y, float 
 }
 
 // ── Перехват BlendFunc для скрытия серверного прицела при активном Crosshair ─
+// В Minecraft ванильный/серверный прицел рисуется через инверсный блендинг:
+// - tryBlendFuncSeparate(GL_ONE_MINUS_DST_COLOR (775), GL_ONE_MINUS_SRC_COLOR (776), 1, 0)
+// - или glBlendFunc(GL_ONE_MINUS_DST_COLOR, GL_ONE_MINUS_SRC_COLOR)
+// Отключаем запись цвета (glColorMask) на время отрисовки этого квада.
 void __stdcall Hooked_nglBlendFuncSeparate(void* env, void* clazz, int sfactorRGB, int dfactorRGB, int sfactorAlpha, int dfactorAlpha, __int64 func) {
     if (g_hideCrosshair) {
-        // 775 = GL_ONE_MINUS_DST_COLOR, 776 = GL_ONE_MINUS_SRC_COLOR (уникальная инверсия прицела)
-        if (sfactorRGB == 775 && dfactorRGB == 776) {
+        if ((sfactorRGB == 775 && dfactorRGB == 776) || (sfactorRGB == 776 && dfactorRGB == 775)) {
             glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
             s_crosshairMasked = true;
         } else if (s_crosshairMasked) {
@@ -626,7 +609,7 @@ void __stdcall Hooked_nglBlendFuncSeparate(void* env, void* clazz, int sfactorRG
 
 void __stdcall Hooked_nglBlendFunc(void* env, void* clazz, int sfactor, int dfactor, __int64 func) {
     if (g_hideCrosshair) {
-        if (sfactor == 775 && dfactor == 776) {
+        if ((sfactor == 775 && dfactor == 776) || (sfactor == 776 && dfactor == 775)) {
             glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
             s_crosshairMasked = true;
         } else if (s_crosshairMasked) {
@@ -645,7 +628,7 @@ void __stdcall Hooked_nglBlendFunc(void* env, void* clazz, int sfactor, int dfac
 
 void APIENTRY Hooked_glBlendFunc(GLenum sfactor, GLenum dfactor) {
     if (g_hideCrosshair) {
-        if (sfactor == 775 && dfactor == 776) {
+        if ((sfactor == 775 && dfactor == 776) || (sfactor == 776 && dfactor == 775)) {
             glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
             s_crosshairMasked = true;
         } else if (s_crosshairMasked) {

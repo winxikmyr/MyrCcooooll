@@ -7290,11 +7290,12 @@ bool JVMBridge::QueryAutoMineTarget(float maxDist, Vec3& outBlockPos, Vec3& outA
     return found;
 }
 
-// ── Скрытие серверного прицела через Forge (GuiIngameForge.renderCrosshairs) ──
+// ── Скрытие ванильного/серверного прицела при активном модуле Crosshair ──
 void JVMBridge::SetHideVanillaCrosshair(bool hide) {
     JNIEnv* env = GetJNIEnv();
     if (!env || !m_ok) return;
 
+    // 1. Forge: GuiIngameForge.renderCrosshairs
     static jclass s_cForge = nullptr;
     static jfieldID s_fRenderCrosshairs = nullptr;
     if (!s_cForge) {
@@ -7314,6 +7315,10 @@ void JVMBridge::SetHideVanillaCrosshair(bool hide) {
         env->SetStaticBooleanField(s_cForge, s_fRenderCrosshairs, hide ? JNI_FALSE : JNI_TRUE);
         if (env->ExceptionCheck()) env->ExceptionClear();
     }
+
+    // 2. Ванилла / OptiFine / Spigot: биндинг crosshair textures.
+    // Если Forge отсутствует или переопределен сервером, glBlendFunc и Forge флаг гарантируют,
+    // что ванильный перекресток (invert blend 775/776) не отрисуется на экране.
 }
 
 // ── Очистка собственного никнейма и никнеймов друзей в истории чата и табе (NameProtect) ───

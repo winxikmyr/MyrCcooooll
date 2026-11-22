@@ -4599,14 +4599,19 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                     const char* uChars = env->GetStringUTFChars(jStr, nullptr);
                     if (uChars && uChars[0] != '\0') {
                         entityUUIDStr = uChars;
+                        std::string lowerUUID = entityUUIDStr;
+                        for (char& c : lowerUUID) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+
                         if (resolvedRealName.empty()) {
                             auto itU = m_knownPlayerNamesByUUID.find(entityUUIDStr);
+                            if (itU == m_knownPlayerNamesByUUID.end()) itU = m_knownPlayerNamesByUUID.find(lowerUUID);
                             if (itU != m_knownPlayerNamesByUUID.end() && IsValidPlayerName(itU->second)) {
                                 resolvedRealName = itU->second;
                             }
                         }
                         if (resolvedRealName.empty()) {
-                            auto it = m_offlineTabNames.find(uChars);
+                            auto it = m_offlineTabNames.find(entityUUIDStr);
+                            if (it == m_offlineTabNames.end()) it = m_offlineTabNames.find(lowerUUID);
                             if (it != m_offlineTabNames.end() && IsValidPlayerName(it->second)) {
                                 resolvedRealName = it->second;
                             }
@@ -5966,13 +5971,11 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                     }
                                 }
 
-                                // 2. Имя стойки и теги (на серверах Rust лут на земле: "ground.armorstand", "ground", и т.д.)
+                                // 2. Имя стойки и теги (на серверах Rust лут на земле: "ground.armorstand", "ground", стойка с ником игрока и т.д.)
                                 std::string standName = "";
                                 jmethodID mGetCustom = env->GetMethodID(cEntity, "bq", "()Ljava/lang/String;");
                                 if (!mGetCustom) { env->ExceptionClear(); mGetCustom = env->GetMethodID(cEntity, "getCustomNameTag", "()Ljava/lang/String;"); }
                                 if (!mGetCustom) { env->ExceptionClear(); mGetCustom = env->GetMethodID(cEntity, "func_95999_t", "()Ljava/lang/String;"); }
-                                if (!mGetCustom) { env->ExceptionClear(); mGetCustom = env->GetMethodID(cEntity, "h_", "()Ljava/lang/String;"); }
-                                if (!mGetCustom) { env->ExceptionClear(); mGetCustom = env->GetMethodID(cEntity, "getName", "()Ljava/lang/String;"); }
                                 if (mGetCustom) {
                                     auto jName = reinterpret_cast<jstring>(env->CallObjectMethod(eObj, mGetCustom));
                                     if (jName && !env->ExceptionCheck()) {
@@ -5980,6 +5983,45 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                         if (chars) { standName = StripColorCodes(chars); env->ReleaseStringUTFChars(jName, chars); }
                                         env->DeleteLocalRef(jName);
                                     } else env->ExceptionClear();
+                                }
+
+                                // Если bq пусто — читаем getDisplayName() (i_() -> hh -> d() / getFormattedText())
+                                if (standName.empty() || standName == "Armor Stand" || standName == "Стойка для брони") {
+                                    jmethodID mDispStand = env->GetMethodID(cEntity, "i_", "()Lhh;");
+                                    if (!mDispStand) { env->ExceptionClear(); mDispStand = env->GetMethodID(cEntity, "getDisplayName", "()Lnet/minecraft/util/text/ITextComponent;"); }
+                                    if (mDispStand) {
+                                        jobject comp = env->CallObjectMethod(eObj, mDispStand);
+                                        if (comp && !env->ExceptionCheck()) {
+                                            jclass cComp = env->GetObjectClass(comp);
+                                            jmethodID mD = env->GetMethodID(cComp, "d", "()Ljava/lang/String;");
+                                            if (!mD) { env->ExceptionClear(); mD = env->GetMethodID(cComp, "getFormattedText", "()Ljava/lang/String;"); }
+                                            if (!mD) { env->ExceptionClear(); mD = env->GetMethodID(cComp, "c", "()Ljava/lang/String;"); }
+                                            if (mD) {
+                                                auto jTxt = reinterpret_cast<jstring>(env->CallObjectMethod(comp, mD));
+                                                if (jTxt && !env->ExceptionCheck()) {
+                                                    const char* s = env->GetStringUTFChars(jTxt, nullptr);
+                                                    if (s && s[0] != '\0') standName = StripColorCodes(s);
+                                                    if (s) env->ReleaseStringUTFChars(jTxt, s);
+                                                    env->DeleteLocalRef(jTxt);
+                                                } else env->ExceptionClear();
+                                            }
+                                            env->DeleteLocalRef(cComp);
+                                            env->DeleteLocalRef(comp);
+                                        } else env->ExceptionClear();
+                                    }
+                                }
+
+                                if (standName.empty() || standName == "Armor Stand" || standName == "Стойка для брони") {
+                                    jmethodID mGetName = env->GetMethodID(cEntity, "h_", "()Ljava/lang/String;");
+                                    if (!mGetName) { env->ExceptionClear(); mGetName = env->GetMethodID(cEntity, "getName", "()Ljava/lang/String;"); }
+                                    if (mGetName) {
+                                        auto jName = reinterpret_cast<jstring>(env->CallObjectMethod(eObj, mGetName));
+                                        if (jName && !env->ExceptionCheck()) {
+                                            const char* chars = env->GetStringUTFChars(jName, nullptr);
+                                            if (chars) { standName = StripColorCodes(chars); env->ReleaseStringUTFChars(jName, chars); }
+                                            env->DeleteLocalRef(jName);
+                                        } else env->ExceptionClear();
+                                    }
                                 }
 
                                 // Чтение Scoreboard Tags (Tags: ["ground.armorstand", ...])
@@ -6300,8 +6342,8 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
             double horizDist = sqrt(ddx * ddx + ddz * ddz);
             double ddy = snp.pos.y - pl.pos.y;
 
-            // На RustEx бейдж стойки брони висит строго над игроком (горизонтальное смещение до 1.5м, по высоте 0.3..3.2м)
-            if (horizDist <= 1.5 && ddy >= 0.3 && ddy <= 3.2) {
+            // На RustEx бейдж стойки брони висит строго над игроком (горизонтальное смещение до 2.0м, по высоте 0.1..3.5м)
+            if (horizDist <= 2.0 && ddy >= 0.1 && ddy <= 3.5) {
                 std::string cand = ExtractRealPlayerName(snp.name, m_data.username);
                 if (IsValidPlayerName(cand) && !EqualCaseInsensitive(cand, m_data.username) && !EqualCaseInsensitive(cand, GetInjectorUsername())) {
                     double totalD = horizDist + fabs(ddy - 1.8) * 0.4;
@@ -6330,13 +6372,18 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                 }
             }
             if ((pl.realName == "Player" || pl.name == "Player" || EqualCaseInsensitive(pl.realName, m_data.username)) && !pl.uuidStr.empty()) {
+                std::string lowerUUID = pl.uuidStr;
+                for (char& c : lowerUUID) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+
                 auto itU = m_knownPlayerNamesByUUID.find(pl.uuidStr);
+                if (itU == m_knownPlayerNamesByUUID.end()) itU = m_knownPlayerNamesByUUID.find(lowerUUID);
                 if (itU != m_knownPlayerNamesByUUID.end() && IsValidPlayerName(itU->second) && !EqualCaseInsensitive(itU->second, m_data.username)) {
                     pl.realName = itU->second;
                     pl.name = itU->second;
                 }
                 if (pl.realName == "Player" || pl.name == "Player" || EqualCaseInsensitive(pl.realName, m_data.username)) {
                     auto itOff = m_offlineTabNames.find(pl.uuidStr);
+                    if (itOff == m_offlineTabNames.end()) itOff = m_offlineTabNames.find(lowerUUID);
                     if (itOff != m_offlineTabNames.end() && IsValidPlayerName(itOff->second) && !EqualCaseInsensitive(itOff->second, m_data.username)) {
                         pl.realName = itOff->second;
                         pl.name = itOff->second;

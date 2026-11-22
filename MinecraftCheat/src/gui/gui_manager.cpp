@@ -498,11 +498,11 @@ void GUIManager::Render(HDC hdc) {
                     draw->AddText(font, fontSize, nPos, IM_COL32(255, 255, 255, 255), fullTag);
                 }
 
-                // Отрисовка иконки предмета: центрирована строго сверху предмета
+                // Отрисовка иконки предмета: mc.getRenderItem().renderItemAndEffectIntoGUI(item, (int) drawX - 2, (int) drawY)
                 if (esp->drawIcon) {
                     float iconSz = std::clamp(esp->iconSize, 8.0f, 64.0f);
-                    float ix = static_cast<float>(posX + (endPosX - posX) * 0.5f - iconSz * 0.5f);
-                    float iy = static_cast<float>(posY - iconSz - 2.0f);
+                    float ix = drawX - 2.0f;
+                    float iy = drawY;
 
                     bool drawn = false;
                     if (atlasId > 0 && item.hasIcon && (item.maxU > item.minU) && (item.maxV > item.minV)) {
@@ -980,14 +980,14 @@ void GUIManager::Render(HDC hdc) {
                     std::string realName = pl.realName.empty() ? pl.name : pl.realName;
                     if (FriendManager::Get().IsFriend(realName)) return;
                     if (pl.health <= 0.0f && pl.maxHealth > 0.0f && pl.health != 20.0f) return;
+                    // «Игнорировать ботов» (aim->bots): если включено — не наводимся на ботов/NPC
                     if (aim->bots && (pl.isBot || pl.name.find("[NPC]") != std::string::npos || pl.name.find("[npc]") != std::string::npos)) return;
-                    if (!aim->walls && !pl.canBeSeen && pl.distance > 3.5f) return;
+                    // «Сквозь стены» (aim->walls): если выключено — наводимся только на видимых игроков
+                    if (!aim->walls && !pl.canBeSeen) return;
 
-                    // Точка прицеливания: голова (1.62) или корпус (0.9)
+                    // Точка прицеливания: корпус (центр масс 0.85-0.95м от ног) или голова (1.62м)
                     const double plH = pl.height > 0.5 ? pl.height : 1.8;
-                    const double targetHeight = std::max(0.6, std::min(
-                        plH * (aim->bodyAim ? 0.5 : 0.9),
-                        aim->bodyAim ? 0.9 : 1.62));
+                    const double targetHeight = aim->bodyAim ? (plH * 0.5) : (plH > 1.2 ? 1.62 : (plH * 0.9));
                     BloodAim::Point targetPos{ pl.pos.x, pl.pos.y + targetHeight, pl.pos.z };
                     float score = BloodAim::MouseDistanceToPoint(targetPos, eyePosition, yaw, pitch);
 
@@ -1004,17 +1004,15 @@ void GUIManager::Render(HDC hdc) {
                 for (const auto& pl : mcData.players) {
                     considerTarget(pl);
                 }
-                // bots == «Игнорировать ботов»: когда опция выключена,
-                // добавляем зомби/мобов из отдельного списка мира.
+                // bots == «Игнорировать ботов»: когда опция выключена (aim->bots == false),
+                // добавляем зомби/мобов из отдельного списка мира как доступные цели
                 if (!aim->bots) {
                     for (const auto& mob : mcData.mobs) {
                         considerTarget(mob);
                     }
                 }
 
-                // Keep the same entity while it remains a valid in-FOV target.
-                // Choosing the nearest angular score every render frame caused
-                // rapid swaps between adjacent players and visible camera shake.
+                // Удержание цели в прицеле: если цель всё ещё в FOV — держим её
                 if (lockedTarget && lockedScore <= aim->fov) {
                     bestTarget = lockedTarget;
                 }
@@ -1024,28 +1022,25 @@ void GUIManager::Render(HDC hdc) {
                     aim->hasTarget = true;
                     aim->ticks++;
 
-                    // pos — уже интерполированные координаты того же кадра,
-                    // что и камера. Предикт добавляем отдельно от этой точки,
-                    // только по фактическому перемещению между тиками.
+                    // Берем интерполированные координаты цели
                     BloodAim::Point position{ bestTarget->pos.x, bestTarget->pos.y, bestTarget->pos.z };
-                    const double horizontalLead = std::clamp(static_cast<double>(aim->predict) * 0.1, 0.0, 1.0);
-                    const double verticalLead = std::clamp(static_cast<double>(aim->vPredict) * 0.1, 0.0, 0.2);
-                    double leadX = (bestTarget->rawPos.x - bestTarget->prevTick.x) * horizontalLead;
-                    double leadZ = (bestTarget->rawPos.z - bestTarget->prevTick.z) * horizontalLead;
-                    const double leadLength = std::sqrt(leadX * leadX + leadZ * leadZ);
-                    if (leadLength > 0.45) {
-                        leadX *= 0.45 / leadLength;
-                        leadZ *= 0.45 / leadLength;
+
+                    // Предикт движения: применяем только если пользователь настроил aim->predict > 0
+                    if (aim->predict > 0.01f || aim->vPredict > 0.01f) {
+                        const double horizontalLead = static_cast<double>(aim->predict) * 0.2;
+                        const double verticalLead = static_cast<double>(aim->vPredict) * 0.2;
+                        // Используем vel (блоков/тик) если есть, либо смещение rawPos - prevTick
+                        double vx = (bestTarget->vel.x != 0.0) ? bestTarget->vel.x : (bestTarget->rawPos.x - bestTarget->prevTick.x);
+                        double vy = (bestTarget->vel.y != 0.0) ? bestTarget->vel.y : (bestTarget->rawPos.y - bestTarget->prevTick.y);
+                        double vz = (bestTarget->vel.z != 0.0) ? bestTarget->vel.z : (bestTarget->rawPos.z - bestTarget->prevTick.z);
+
+                        position.x += vx * horizontalLead;
+                        position.z += vz * horizontalLead;
+                        position.y += std::clamp(vy * verticalLead, -0.5, 0.5);
                     }
-                    position.x += leadX;
-                    position.z += leadZ;
-                    position.y += std::clamp(
-                        (bestTarget->rawPos.y - bestTarget->prevTick.y) * verticalLead,
-                        -0.15, 0.15);
+
                     const double bH = bestTarget->height > 0.5 ? bestTarget->height : 1.8;
-                    position.y += std::max(0.6, std::min(
-                        bH * (aim->bodyAim ? 0.5 : 0.9),
-                        aim->bodyAim ? 0.9 : 1.62));
+                    position.y += aim->bodyAim ? (bH * 0.5) : (bH > 1.2 ? 1.62 : (bH * 0.9));
                     auto facing = BloodAim::FacePoint(position, eyePosition);
 
                     if (std::isfinite(facing.yaw) && std::isfinite(facing.pitch)) {

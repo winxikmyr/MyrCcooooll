@@ -503,46 +503,47 @@ void GUIManager::RenderContentOnly() {
                 ImVec2 tagTextSize = font ? font->CalcTextSizeA(fontSize, FLT_MAX, 0.f, tag.c_str()) : ImVec2(30.f, 12.f);
                 float tagWidth = tagTextSize.x;
 
-                // Координаты отрисовки ТОЧЬ В ТОЧЬ по ItemESP.java:
-                // float drawX = (float) (posX + (endPosX - posX) / 2.0F - tagWidth / 2);
-                // float drawY = (float) (posY - 10);
+                // Координаты отрисовки:
                 float drawX = static_cast<float>(posX + (endPosX - posX) * 0.5f - tagWidth * 0.5f);
                 float drawY = static_cast<float>(posY - 10.0f);
 
-                // Дистанция: String.format("%.1f м", distance)
-                char dis[32];
-                snprintf(dis, sizeof(dis), "%.1f м", item.distance);
+                // Если включен режим drawIconOnly — текст (имя и дистанция) полностью скрывается
+                if (!esp->drawIconOnly) {
+                    // Дистанция: String.format("%.1f м", distance)
+                    char dis[32];
+                    snprintf(dis, sizeof(dis), "%.1f м", item.distance);
 
-                // Fonts.nunito12.drawStringWithOutline(dis, drawX + 14, drawY + 3, -1)
-                if (esp->drawDistance && font) {
-                    ImVec2 dPos(drawX + 14.0f, drawY + 3.0f);
-                    draw->AddText(font, fontSize, ImVec2(dPos.x - 1.f, dPos.y), IM_COL32(0, 0, 0, 255), dis);
-                    draw->AddText(font, fontSize, ImVec2(dPos.x + 1.f, dPos.y), IM_COL32(0, 0, 0, 255), dis);
-                    draw->AddText(font, fontSize, ImVec2(dPos.x, dPos.y - 1.f), IM_COL32(0, 0, 0, 255), dis);
-                    draw->AddText(font, fontSize, ImVec2(dPos.x, dPos.y + 1.f), IM_COL32(0, 0, 0, 255), dis);
-                    draw->AddText(font, fontSize, dPos, IM_COL32(255, 255, 255, 255), dis);
-                }
+                    // Fonts.nunito12.drawStringWithOutline(dis, drawX + 14, drawY + 3, -1)
+                    if (esp->drawDistance && font) {
+                        ImVec2 dPos(drawX + 14.0f, drawY + 3.0f);
+                        draw->AddText(font, fontSize, ImVec2(dPos.x - 1.f, dPos.y), IM_COL32(0, 0, 0, 255), dis);
+                        draw->AddText(font, fontSize, ImVec2(dPos.x + 1.f, dPos.y), IM_COL32(0, 0, 0, 255), dis);
+                        draw->AddText(font, fontSize, ImVec2(dPos.x, dPos.y - 1.f), IM_COL32(0, 0, 0, 255), dis);
+                        draw->AddText(font, fontSize, ImVec2(dPos.x, dPos.y + 1.f), IM_COL32(0, 0, 0, 255), dis);
+                        draw->AddText(font, fontSize, dPos, IM_COL32(255, 255, 255, 255), dis);
+                    }
 
-                // Отрисовка имени предмета с контуром (если включено drawName)
-                if (esp->drawName && font) {
-                    char fullTag[128];
-                    if (item.count > 1) snprintf(fullTag, sizeof(fullTag), "%s x%d", tag.c_str(), item.count);
-                    else snprintf(fullTag, sizeof(fullTag), "%s", tag.c_str());
+                    // Отрисовка имени предмета с контуром (если включено drawName)
+                    if (esp->drawName && font) {
+                        char fullTag[128];
+                        if (item.count > 1) snprintf(fullTag, sizeof(fullTag), "%s x%d", tag.c_str(), item.count);
+                        else snprintf(fullTag, sizeof(fullTag), "%s", tag.c_str());
 
-                    ImVec2 fullTagSz = font->CalcTextSizeA(fontSize, FLT_MAX, 0.f, fullTag);
-                    ImVec2 nPos(static_cast<float>(posX + (endPosX - posX) * 0.5f - fullTagSz.x * 0.5f), drawY - fullTagSz.y - 1.0f);
-                    draw->AddText(font, fontSize, ImVec2(nPos.x - 1.f, nPos.y), IM_COL32(0, 0, 0, 255), fullTag);
-                    draw->AddText(font, fontSize, ImVec2(nPos.x + 1.f, nPos.y), IM_COL32(0, 0, 0, 255), fullTag);
-                    draw->AddText(font, fontSize, ImVec2(nPos.x, nPos.y - 1.f), IM_COL32(0, 0, 0, 255), fullTag);
-                    draw->AddText(font, fontSize, ImVec2(nPos.x, nPos.y + 1.f), IM_COL32(0, 0, 0, 255), fullTag);
-                    draw->AddText(font, fontSize, nPos, IM_COL32(255, 255, 255, 255), fullTag);
+                        ImVec2 fullTagSz = font->CalcTextSizeA(fontSize, FLT_MAX, 0.f, fullTag);
+                        ImVec2 nPos(static_cast<float>(posX + (endPosX - posX) * 0.5f - fullTagSz.x * 0.5f), drawY - fullTagSz.y - 1.0f);
+                        draw->AddText(font, fontSize, ImVec2(nPos.x - 1.f, nPos.y), IM_COL32(0, 0, 0, 255), fullTag);
+                        draw->AddText(font, fontSize, ImVec2(nPos.x + 1.f, nPos.y), IM_COL32(0, 0, 0, 255), fullTag);
+                        draw->AddText(font, fontSize, ImVec2(nPos.x, nPos.y - 1.f), IM_COL32(0, 0, 0, 255), fullTag);
+                        draw->AddText(font, fontSize, ImVec2(nPos.x, nPos.y + 1.f), IM_COL32(0, 0, 0, 255), fullTag);
+                        draw->AddText(font, fontSize, nPos, IM_COL32(255, 255, 255, 255), fullTag);
+                    }
                 }
 
                 // Отрисовка иконки предмета: mc.getRenderItem().renderItemAndEffectIntoGUI(item, (int) drawX - 2, (int) drawY)
                 if (esp->drawIcon) {
-                    float iconSz = (esp->iconSize >= 8.0f && esp->iconSize <= 64.0f) ? esp->iconSize : 16.0f;
-                    float ix = drawX - 2.0f;
-                    float iy = drawY;
+                    float iconSz = (esp->iconSize >= 8.0f && esp->iconSize <= 64.0f) ? esp->iconSize : 20.0f;
+                    float ix = esp->drawIconOnly ? static_cast<float>(posX + (endPosX - posX) * 0.5f - iconSz * 0.5f) : (drawX - 2.0f);
+                    float iy = esp->drawIconOnly ? static_cast<float>(posY + (endPosY - posY) * 0.5f - iconSz * 0.5f) : drawY;
 
                     bool drawn = false;
                     if (atlasId > 0 && item.hasIcon && (item.maxU > item.minU) && (item.maxV > item.minV)) {

@@ -2294,10 +2294,10 @@ static bool QueryResourcePackSprite(JNIEnv* env, jobject mc, int itemId, const s
         candidates = { "item/rustme/icons/knife_bone", "rustme/icons/knife_bone", "icons/knife_bone", "icons/knife_combat", "icons/knife_butcher", "knife_bone" };
     } else if (lower.find("ткань") != std::string::npos || lower.find("cloth") != std::string::npos) {
         candidates = { "item/rustme/icons/cloth", "rustme/icons/cloth", "icons/cloth", "cloth", "minecraft:icons/cloth", "minecraft:items/string" };
-    } else if (lower.find("дерев") != std::string::npos || lower.find("wood") != std::string::npos || lower.find("бревн") != std::string::npos || lower.find("log") != std::string::npos) {
-        candidates = { "item/rustme/icons/wood", "rustme/icons/wood", "icons/wood", "item/rustme/icons/wood_log", "rustme/icons/wood_log", "icons/wood_log", "icons/log", "wood", "minecraft:icons/wood", "minecraft:blocks/log_oak", "blocks/log_oak" };
+    } else if (lower.find("дерев") != std::string::npos || lower.find("wood") != std::string::npos || lower.find("бревн") != std::string::npos || lower.find("log") != std::string::npos || lower.find("hoeiron") != std::string::npos || lower.find("hoe_iron") != std::string::npos) {
+        candidates = { "item/rustme/icons/wood", "rustme/icons/wood", "icons/wood", "item/rustme/icons/wood_log", "rustme/icons/wood_log", "icons/wood_log", "icons/log", "wood", "minecraft:icons/wood" };
     } else if (lower.find("кост") != std::string::npos || lower.find("bone") != std::string::npos) {
-        candidates = { "item/rustme/icons/bone_fragments", "rustme/icons/bone_fragments", "icons/bone_fragments", "icons/bone", "minecraft:icons/bone_fragments", "minecraft:items/bone", "bone" };
+        candidates = { "item/rustme/icons/bone_fragments", "rustme/icons/bone_fragments", "icons/bone_fragments", "icons/bone", "minecraft:icons/bone_fragments", "bone" };
     } else if (lower.find("жир") != std::string::npos || lower.find("fat") != std::string::npos) {
         candidates = { "item/rustme/icons/fat_animal", "rustme/icons/fat_animal", "icons/fat_animal", "icons/fat", "minecraft:items/magma_cream" };
     } else if (lower.find("скрап") != std::string::npos || lower.find("металлолом") != std::string::npos || lower.find("scrap") != std::string::npos) {
@@ -2374,8 +2374,8 @@ static bool QueryResourcePackSprite(JNIEnv* env, jobject mc, int itemId, const s
         candidates = { "icons/meat_pork", "icons/meat_boar", "meat_pork", "meat_boar", "minecraft:icons/meat_pork", "minecraft:items/porkchop_raw", "minecraft:items/porkchop_cooked" };
     } else if (lower.find("мясо") != std::string::npos || lower.find("meat") != std::string::npos || lower.find("beef") != std::string::npos || lower.find("стейк") != std::string::npos || lower.find("steak") != std::string::npos || itemId == 363 || itemId == 364 || itemId == 365 || itemId == 366) {
         candidates = { "item/rustme/icons/meat_raw", "rustme/icons/meat_raw", "icons/meat_raw", "icons/meat_cooked", "item/rustme/icons/meat_cooked", "rustme/icons/meat_cooked", "meat_raw", "meat_cooked", "minecraft:icons/meat_raw", "minecraft:items/beef_raw", "minecraft:items/beef_cooked", "icons/meat_boar", "icons/meat_pork", "icons/meat_bear" };
-    } else if (lower.find("бревн") != std::string::npos || lower.find("log") != std::string::npos || lower.find("дерев") != std::string::npos || lower.find("wood") != std::string::npos) {
-        candidates = { "item/rustme/icons/wood", "rustme/icons/wood", "icons/wood", "item/rustme/icons/wood_log", "rustme/icons/wood_log", "icons/wood_log", "icons/log", "wood", "minecraft:icons/wood", "minecraft:blocks/log_oak", "blocks/log_oak" };
+    } else if (lower.find("бревн") != std::string::npos || lower.find("log") != std::string::npos || lower.find("дерев") != std::string::npos || lower.find("wood") != std::string::npos || lower.find("hoeiron") != std::string::npos || lower.find("hoe_iron") != std::string::npos) {
+        candidates = { "item/rustme/icons/wood", "rustme/icons/wood", "icons/wood", "item/rustme/icons/wood_log", "rustme/icons/wood_log", "icons/wood_log", "icons/log", "wood", "minecraft:icons/wood" };
     } else if (lower.find("боб") != std::string::npos || lower.find("консерв") != std::string::npos || lower.find("beans") != std::string::npos) {
         candidates = { "icons/can_beans", "minecraft:icons/can_beans" };
     } else if (lower.find("ракетница") != std::string::npos || lower.find("rocket_launcher") != std::string::npos) {
@@ -3131,13 +3131,15 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
 
         std::string spLower = CleanAndLower(spFound);
 
-        // Определяем подлинное имя предмета по найденному спрайту модели, если имя замаскировано ("sosihuy" или "hatchetIron")
+        // Определяем подлинное имя предмета по найденному спрайту модели, если имя замаскировано ("sosihuy", "hatchetIron", "hoeIron")
         std::string effectiveName = out.name;
         std::string rawLowerName = CleanAndLower(out.name);
         bool needsTrueName = effectiveName.empty() || isMasked ||
                              rawLowerName.find("sosi") != std::string::npos ||
                              rawLowerName.find("huy") != std::string::npos ||
-                             rawLowerName.find("hatchetiron") != std::string::npos;
+                             rawLowerName.find("hatchetiron") != std::string::npos ||
+                             rawLowerName.find("hoeiron") != std::string::npos ||
+                             rawLowerName.find("hoe_iron") != std::string::npos;
 
         if (needsTrueName && !spLower.empty() && spLower != "missingno") {
             if (spLower.find("bone_club") != std::string::npos || spLower.find("club") != std::string::npos) effectiveName = "Bone Club";
@@ -6066,10 +6068,16 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                         gItem.hasIcon = bestItem->hasIcon;
                                         gItem.minU = bestItem->minU; gItem.maxU = bestItem->maxU;
                                         gItem.minV = bestItem->minV; gItem.maxV = bestItem->maxV;
+
+                                        // Очистка замаскированных серверных названий
+                                        std::string lBest = CleanAndLower(gItem.name);
+                                        if (lBest.find("hoeiron") != std::string::npos || lBest.find("hoe_iron") != std::string::npos) {
+                                            gItem.name = "Wood";
+                                        }
                                     }
 
                                     // Если предмет не определился из слотов — определяем имя из allStandInfo (ground.armorstand.<item_name>)
-                                    if (gItem.name.empty() || gItem.name == "ground" || gItem.name == "Ground Item" || gItem.name == "Item" || gItem.name == "Armor Stand") {
+                                    if (gItem.name.empty() || gItem.name == "ground" || gItem.name == "Ground Item" || gItem.name == "Item" || gItem.name == "Armor Stand" || gItem.name == "hoeIron") {
                                         if (allStandInfo.find("pumpkin") != std::string::npos || allStandInfo.find("тыкв") != std::string::npos) gItem.name = "Pumpkin";
                                         else if (allStandInfo.find("meat") != std::string::npos || allStandInfo.find("beef") != std::string::npos || allStandInfo.find("мясо") != std::string::npos || allStandInfo.find("говяд") != std::string::npos) gItem.name = "Meat";
                                         else if (allStandInfo.find("pork") != std::string::npos || allStandInfo.find("свинин") != std::string::npos) gItem.name = "Porkchop";

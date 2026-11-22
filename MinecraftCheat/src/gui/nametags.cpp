@@ -177,7 +177,9 @@ void NameTags::Draw(const ModuleNameTags* settings) {
 
         float center = scHead.x; // Центр игрока на экране строго по оси X
         float posY   = scHead.y; // Верхняя точка над головой на экране
-        if (posY < 28.0f) posY = 28.0f; // В тесных комнатах удерживаем бейдж в видимой зоне экрана
+        // Не прижимаем тег искусственно к верхней кромке экрана (posY = 28.0f), так как при взгляде под углом или на дистанции это смещает неймтег высоко в небо
+        ImVec2 disp = ImGui::GetIO().DisplaySize;
+        if (center < -200.0f || center > disp.x + 200.0f || posY < -200.0f || posY > disp.y + 200.0f) continue;
 
         // Масштабирование шрифта
         float distFactor = std::max(0.7f, std::min(1.8f, (1.0f + player.distance * 0.015f)));

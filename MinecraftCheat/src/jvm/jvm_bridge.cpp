@@ -11,6 +11,40 @@
 
 std::string GetInjectorUsername();
 
+static std::string CleanMinecraftCodes(const std::string& input) {
+    std::string out;
+    out.reserve(input.size());
+    for (size_t i = 0; i < input.size(); ) {
+        unsigned char c1 = static_cast<unsigned char>(input[i]);
+        if (c1 == 0xC2 && i + 1 < input.size() && static_cast<unsigned char>(input[i + 1]) == 0xA7) {
+            i += 2;
+            if (i < input.size()) {
+                unsigned char c2 = static_cast<unsigned char>(input[i]);
+                if ((c2 >= '0' && c2 <= '9') || (c2 >= 'a' && c2 <= 'z') || (c2 >= 'A' && c2 <= 'Z')) i += 1;
+            }
+            continue;
+        }
+        if (c1 == 0xA7) {
+            i += 1;
+            if (i < input.size()) {
+                unsigned char c2 = static_cast<unsigned char>(input[i]);
+                if ((c2 >= '0' && c2 <= '9') || (c2 >= 'a' && c2 <= 'z') || (c2 >= 'A' && c2 <= 'Z')) i += 1;
+            }
+            continue;
+        }
+        if (c1 == '&' && i + 1 < input.size()) {
+            unsigned char c2 = static_cast<unsigned char>(input[i + 1]);
+            if ((c2 >= '0' && c2 <= '9') || (c2 >= 'a' && c2 <= 'f') || (c2 >= 'k' && c2 <= 'o') || c2 == 'r' || (c2 >= 'A' && c2 <= 'F') || c2 == 'R') {
+                i += 2;
+                continue;
+            }
+        }
+        out.push_back(input[i]);
+        i += 1;
+    }
+    return out;
+}
+
 static const std::unordered_map<int, const char*> CUSTOM_ITEM_IDS = {
     { 1125, "Stone" },
     { 1396, "Bow" },
@@ -3254,10 +3288,7 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
     if (!fExpLvl) { env->ExceptionClear(); fExpLvl = env->GetFieldID(cPlayer, "experienceLevel", "I"); }
     if (fExpLvl) m_data.experienceLevel = env->GetIntField(player, fExpLvl);
 
-    // 1. Прямой и 100% надежный способ для EntityLivingBase/EntityPlayerSP:
-    // EntityEquipmentSlot: 0: FEET (boots), 1: LEGS (leggings), 2: CHEST (chestplate), 3: HEAD (helmet)
-    // 0 = helmet (HEAD), 1 = chest (CHEST), 2 = legs (LEGS), 3 = boots (FEET)
-    bool armorReadViaSlot = false;
+    // 1. Броня: построчный опрос каждого слота (0: HEAD, 1: CHEST, 2: LEGS, 3: FEET)
     jobject cl = GetMinecraftClassLoader(env);
     jclass cSlot = FindMCClass(env, cl, "vl");
     if (!cSlot) cSlot = FindMCClass(env, cl, "net/minecraft/inventory/EntityEquipmentSlot");
@@ -3287,7 +3318,6 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
                         jobject stack = env->CallObjectMethod(player, mGetSlot, slotEnum);
                         if (stack && !env->ExceptionCheck()) {
                             ParseItemStackHelper(env, mcInst, stack, m_data.equipment[s]);
-                            if (!m_data.equipment[s].isEmpty) armorReadViaSlot = true;
                             env->DeleteLocalRef(stack);
                         } else env->ExceptionClear();
                         env->DeleteLocalRef(slotEnum);
@@ -3317,27 +3347,12 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
     }
     if (curCls && curCls != cPlayer) env->DeleteLocalRef(curCls);
 
-    if (!fInv) {
-        env->ExceptionClear();
-        env->DeleteLocalRef(cPlayer);
-        env->DeleteLocalRef(player);
-        if (!armorReadViaSlot) {
-            for (int i = 0; i < 5; ++i) m_data.equipment[i].isEmpty = true;
-        }
-        for (int i = 0; i < 9; ++i) m_data.hotbar[i].isEmpty = true;
-        m_data.offHandItem.isEmpty = true;
-        return;
-    }
-
-    jobject inv = env->GetObjectField(player, fInv);
+    jobject inv = fInv ? env->GetObjectField(player, fInv) : nullptr;
+    if (env->ExceptionCheck()) { env->ExceptionClear(); inv = nullptr; }
 
     // Резервный поиск надетой брони через inventoryContainer / openContainer (слоты 5..8: 5=шлем, 6=нагрудник, 7=поножи, 8=ботинки):
-    // Гарантирует считывание брони даже если сервер или кастомные плагины модифицируют слоты контейнера игрока
     for (int i = 0; i < 4; ++i) {
         if (m_data.equipment[i].isEmpty) {
-            // Container fields in EntityPlayer:
-            // inventoryContainer: field_71069_bz / bz / bu / bv
-            // openContainer: field_71070_bA / bA / bv / bw
             const char* contFields[] = { "inventoryContainer", "field_71069_bz", "bz", "openContainer", "field_71070_bA", "bA", "bv" };
             jobject contObj = nullptr;
             for (const char* cf : contFields) {
@@ -3366,7 +3381,6 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
                             jobject slotStack = env->CallObjectMethod(slotObj, mGetStack);
                             if (slotStack && !env->ExceptionCheck()) {
                                 ParseItemStackHelper(env, mcInst, slotStack, m_data.equipment[i]);
-                                if (!m_data.equipment[i].isEmpty) armorReadViaSlot = true;
                                 env->DeleteLocalRef(slotStack);
                             } else env->ExceptionClear();
                         }
@@ -3383,11 +3397,7 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
     env->DeleteLocalRef(cPlayer);
     env->DeleteLocalRef(player);
 
-    if (!inv || env->ExceptionCheck()) {
-        env->ExceptionClear();
-        if (!armorReadViaSlot) {
-            for (int i = 0; i < 5; ++i) m_data.equipment[i].isEmpty = true;
-        }
+    if (!inv) {
         for (int i = 0; i < 9; ++i) m_data.hotbar[i].isEmpty = true;
         m_data.offHandItem.isEmpty = true;
         return;
@@ -3420,25 +3430,22 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
     jclass cList = env->FindClass("java/util/List");
     jmethodID mGetItem = cList ? env->GetMethodID(cList, "get", "(I)Ljava/lang/Object;") : nullptr;
 
-    // Броня: если не прочитана через EntityEquipmentSlot / Container, читаем через armorInventory
-    if (!armorReadViaSlot) {
-        if (fArmor && mGetItem) {
-            jobject armorList = env->GetObjectField(inv, fArmor);
-            if (armorList && !env->ExceptionCheck()) {
-                for (int i = 0; i < 4; ++i) {
+    // Броня: проверяем armorInventory ПОСЛОТОВО для любого слота, который всё ещё пуст
+    if (fArmor && mGetItem) {
+        jobject armorList = env->GetObjectField(inv, fArmor);
+        if (armorList && !env->ExceptionCheck()) {
+            for (int i = 0; i < 4; ++i) {
+                if (m_data.equipment[i].isEmpty) {
                     int armorIdx = 3 - i; // 3=шлем, 2=нагрудник, 1=поножи, 0=ботинки
                     jobject is = env->CallObjectMethod(armorList, mGetItem, armorIdx);
-                    ParseItemStackHelper(env, mcInst, is, m_data.equipment[i]);
-                    if (is) env->DeleteLocalRef(is);
+                    if (is && !env->ExceptionCheck()) {
+                        ParseItemStackHelper(env, mcInst, is, m_data.equipment[i]);
+                        env->DeleteLocalRef(is);
+                    } else env->ExceptionClear();
                 }
-                env->DeleteLocalRef(armorList);
-            } else {
-                env->ExceptionClear();
-                for (int i = 0; i < 4; ++i) m_data.equipment[i].isEmpty = true;
             }
-        } else {
-            for (int i = 0; i < 4; ++i) m_data.equipment[i].isEmpty = true;
-        }
+            env->DeleteLocalRef(armorList);
+        } else env->ExceptionClear();
     }
 
     // Запасной вариант UV спрайта для надетой брони (если иконка не определилась или слетела)
@@ -4181,7 +4188,7 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
             double ndcX = clipX / clipW;
             double ndcY = clipY / clipW;
 
-            if (fabs(ndcX) <= 1.25 && fabs(ndcY) <= 1.25) {
+            if (fabs(ndcX) <= 10.0 && fabs(ndcY) <= 10.0) {
                 double centerX = disp.x * 0.5;
                 double centerY = disp.y * 0.5;
                 double screenX = centerX + ndcX * centerX;
@@ -7161,22 +7168,7 @@ std::string JVMBridge::QueryPointedPlayer() {
     }
 
     env->PopLocalFrame(nullptr);
-
-    // Удаляем цветовые коды форматирования Minecraft
-    std::string cleanResult;
-    for (size_t i = 0; i < resultName.length(); ++i) {
-        if (static_cast<unsigned char>(resultName[i]) == 0xC2 && i + 1 < resultName.length() && static_cast<unsigned char>(resultName[i + 1]) == 0xA7) {
-            if (i + 2 < resultName.length()) i += 2;
-            else i += 1;
-            continue;
-        }
-        if (static_cast<unsigned char>(resultName[i]) == 0xA7 || resultName[i] == '&') {
-            if (i + 1 < resultName.length()) i += 1;
-            continue;
-        }
-        cleanResult += resultName[i];
-    }
-    return cleanResult;
+    return CleanMinecraftCodes(resultName);
 }
 
 // ── Поиск блоков и армор стендов для AutoMine ──────────────────────────────

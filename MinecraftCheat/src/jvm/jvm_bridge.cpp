@@ -6184,7 +6184,7 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                     newEntityOres.push_back(nodeInfo);
                                 }
 
-                                // 2. AutoMine: поиск блоков вокруг ArmorStand (1-в-1 как в AutoMine.java)
+                                // 2. AutoMine: поиск блоков вокруг ArmorStand (деревья, руды, блоки)
                                 if (m_autoMineEnabled && dist <= 10.0 && cBP && mInitBP && mIsAir) {
                                     int iX = static_cast<int>(floor(sInterpX));
                                     int iY = static_cast<int>(floor(sInterpY));
@@ -6194,12 +6194,13 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                     int bestCX = 0, bestCY = 0, bestCZ = 0;
                                     bool foundBlock = false;
 
-                                    // Обход области 4x4 по горизонтали [-2, 1]. Сначала
-                                    // проверяем уровень стойки, затем блок ниже: если
-                                    // центры равноудалены, цель остаётся на правильном уровне.
-                                    for (int ox = -2; ox < 2; ++ox) {
-                                        for (int oz = -2; oz < 2; ++oz) {
-                                            for (int oy = 0; oy >= -1; --oy) {
+                                    // Расширенный поиск по вертикали от -1 до +3 блоков:
+                                    // при рубке дерева или добыче руды маркер перемещается вверх по стволу,
+                                    // поэтому проверка только oy <= 0 приводила к тому, что после 3 ударов
+                                    // нижнее бревно ломалось, становилось воздухом, и рубка дерева прекращалась.
+                                    for (int oy = 0; oy <= 3; ++oy) {
+                                        for (int ox = -2; ox <= 2; ++ox) {
+                                            for (int oz = -2; oz <= 2; ++oz) {
                                                 int cx = iX + ox;
                                                 int cy = iY + oy;
                                                 int cz = iZ + oz;
@@ -6218,6 +6219,35 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                                             fabs(dsq - bestBlockDistSq) < 1e-9 &&
                                                             cx == iX && cy == iY && cz == iZ;
                                                         if (dsq < bestBlockDistSq - 1e-9 || tiePrefersThisBlock) {
+                                                            bestBlockDistSq = dsq;
+                                                            bestCX = cx; bestCY = cy; bestCZ = cz;
+                                                            foundBlock = true;
+                                                        }
+                                                    }
+                                                } else env->ExceptionClear();
+                                            }
+                                        }
+                                    }
+
+                                    // Если на уровне стойки и выше не найдено, проверяем 1 блок ниже (oy = -1)
+                                    if (!foundBlock) {
+                                        for (int ox = -2; ox <= 2; ++ox) {
+                                            for (int oz = -2; oz <= 2; ++oz) {
+                                                int cx = iX + ox;
+                                                int cy = iY - 1;
+                                                int cz = iZ + oz;
+
+                                                jobject bp = env->NewObject(cBP, mInitBP, cx, cy, cz);
+                                                if (bp && !env->ExceptionCheck()) {
+                                                    bool isAir = env->CallBooleanMethod(world, mIsAir, bp);
+                                                    if (env->ExceptionCheck()) { env->ExceptionClear(); isAir = true; }
+                                                    env->DeleteLocalRef(bp);
+                                                    if (!isAir) {
+                                                        double ddx = (cx + 0.5) - sInterpX;
+                                                        double ddy = (cy + 0.5) - sInterpY;
+                                                        double ddz = (cz + 0.5) - sInterpZ;
+                                                        double dsq = ddx*ddx + ddy*ddy + ddz*ddz;
+                                                        if (dsq < bestBlockDistSq - 1e-9) {
                                                             bestBlockDistSq = dsq;
                                                             bestCX = cx; bestCY = cy; bestCZ = cz;
                                                             foundBlock = true;
@@ -6976,12 +7006,23 @@ void JVMBridge::SendDiggingPacket(int x, int y, int z, int facing) {
     jmethodID mInitBP = cBP ? env->GetMethodID(cBP, "<init>", "(III)V") : nullptr;
     jobject blockPos = (cBP && mInitBP) ? env->NewObject(cBP, mInitBP, x, y, z) : nullptr;
 
-    // EnumFacing.DOWN (fa.a)
+    // EnumFacing (fa.a..f или значения DOWN, UP, NORTH, SOUTH, WEST, EAST)
     jclass cFacing = FindMCClass(env, cl, "fa");
     if (!cFacing) cFacing = FindMCClass(env, cl, "net/minecraft/util/EnumFacing");
-    jfieldID fDown = cFacing ? env->GetStaticFieldID(cFacing, "a", "Lfa;") : nullptr;
-    if (!fDown && cFacing) { env->ExceptionClear(); fDown = env->GetStaticFieldID(cFacing, "DOWN", "Lnet/minecraft/util/EnumFacing;"); }
-    jobject facingObj = (cFacing && fDown) ? env->GetStaticObjectField(cFacing, fDown) : nullptr;
+    
+    // Динамический выбор грани (EnumFacing):
+    // Если копаем дерево выше нас (y >= playerY) или facing == 1, используем UP (fa.b),
+    // чтобы античит не отклонял пакеты как скрытую/нижнюю грань.
+    const char* faceField = "a"; // default: DOWN (fa.a)
+    const char* faceName = "DOWN";
+    if (facing == 1 || y >= static_cast<int>(m_data.playerPos.y)) {
+        faceField = "b"; // UP (fa.b)
+        faceName = "UP";
+    }
+    jfieldID fFacing = cFacing ? env->GetStaticFieldID(cFacing, faceField, "Lfa;") : nullptr;
+    if (!fFacing && cFacing) { env->ExceptionClear(); fFacing = env->GetStaticFieldID(cFacing, faceName, "Lnet/minecraft/util/EnumFacing;"); }
+    if (!fFacing && cFacing) { env->ExceptionClear(); fFacing = env->GetStaticFieldID(cFacing, "a", "Lfa;"); }
+    jobject facingObj = (cFacing && fFacing) ? env->GetStaticObjectField(cFacing, fFacing) : nullptr;
 
     if (blockPos && facingObj) {
         // 1. Прямая отправка сетевого пакета CPacketPlayerDigging(Action.START_DESTROY_BLOCK, blockPos, EnumFacing.DOWN)

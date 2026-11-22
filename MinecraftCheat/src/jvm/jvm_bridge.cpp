@@ -3750,11 +3750,6 @@ void JVMBridge::UpdateRenderMatrices(JNIEnv* env) {
                         m_camPos = m_data.camPos;
                         gotCam = true;
                     }
-                    if (s_fRM_playerViewX && s_fRM_playerViewY) {
-                        // В RenderManager 1.12.2: playerViewY = rotationYaw, playerViewX = rotationPitch!
-                        m_data.camYaw   = env->GetFloatField(rmObj, s_fRM_playerViewY);
-                        m_data.camPitch = env->GetFloatField(rmObj, s_fRM_playerViewX);
-                    }
                 }
             }
             env->DeleteLocalRef(rmObj);
@@ -3864,18 +3859,15 @@ void JVMBridge::UpdateRenderMatrices(JNIEnv* env) {
                     s_lastEyeHeight = eyeH;
 
                     m_data.playerPos = { myInterpX, myInterpY, myInterpZ };
+                    if (fYaw && fPitch) {
+                        float curY = env->GetFloatField(localPlayer, fYaw);
+                        float curP = env->GetFloatField(localPlayer, fPitch);
+                        m_data.camYaw   = curY;
+                        m_data.camPitch = curP;
+                    }
                     if (!gotCam) {
                         m_data.camPos    = { myInterpX, myInterpY + eyeH, myInterpZ };
                         m_camPos         = m_data.camPos;
-
-                        if (fYaw && fPitch) {
-                            float curY = env->GetFloatField(localPlayer, fYaw);
-                            float curP = env->GetFloatField(localPlayer, fPitch);
-                            float prevY = fPrevYaw ? env->GetFloatField(localPlayer, fPrevYaw) : curY;
-                            float prevP = fPrevPitch ? env->GetFloatField(localPlayer, fPrevPitch) : curP;
-                            m_data.camYaw   = prevY + (curY - prevY) * pt;
-                            m_data.camPitch = prevP + (curP - prevP) * pt;
-                        }
                     }
                 }
                 env->DeleteLocalRef(cEntity);
@@ -4038,26 +4030,21 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
         double clipY = eyeX * P[1] + eyeY * P[5] + eyeZ * P[9]  + eyeW * P[13];
         double clipW = eyeX * P[3] + eyeY * P[7] + eyeZ * P[11] + eyeW * P[15];
 
-        // Точка позади камеры или ближе ближней плоскости отсечения
-        if (clipW <= 0.05) return false;
+        if (clipW > 0.01) {
+            double ndcX = clipX / clipW;
+            double ndcY = clipY / clipW;
 
-        double ndcX = clipX / clipW;
-        double ndcY = clipY / clipW;
+            if (fabs(ndcX) <= 10.0 && fabs(ndcY) <= 10.0) {
+                double centerX = disp.x * 0.5;
+                double centerY = disp.y * 0.5;
+                double screenX = centerX + ndcX * centerX;
+                double screenY = centerY * (1.0 - ndcY);
 
-        // Отсекаем точки далеко за пределами экрана
-        if (fabs(ndcX) <= 2.0 && fabs(ndcY) <= 2.0) {
-            const double vpX = m_viewport[0];
-            const double vpY = m_viewport[1];
-            const double vpW = m_viewport[2] > 0 ? m_viewport[2] : disp.x;
-            const double vpH = m_viewport[3] > 0 ? m_viewport[3] : disp.y;
-            double screenX = vpX + (ndcX + 1.0) * vpW * 0.5;
-            double screenY = disp.y - (vpY + (ndcY + 1.0) * vpH * 0.5);
-
-            screenOut.x = static_cast<float>(screenX);
-            screenOut.y = static_cast<float>(screenY);
-            return true;
+                screenOut.x = static_cast<float>(screenX);
+                screenOut.y = static_cast<float>(screenY);
+                return true;
+            }
         }
-        return false;
     }
 
     // Способ 2 (Fallback): Тригонометрический расчет по углам Эйлера (только если матриц еще нет)
@@ -4106,7 +4093,7 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
     double xNorm = xCam / (zCam * tanHalfX);
     double yNorm = yCam / (zCam * tanHalfY);
 
-    if (fabs(xNorm) <= 2.0 && fabs(yNorm) <= 2.0) {
+    if (fabs(xNorm) <= 10.0 && fabs(yNorm) <= 10.0) {
         double centerX = disp.x * 0.5;
         double centerY = disp.y * 0.5;
         double screenX = centerX + xNorm * centerX;

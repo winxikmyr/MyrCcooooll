@@ -980,8 +980,8 @@ void GUIManager::Render(HDC hdc) {
                     if (pl.health <= 0.0f && pl.maxHealth > 0.0f && pl.health != 20.0f) return;
                     // «Игнорировать ботов» (aim->bots): если включено — не наводимся на ботов/NPC
                     if (aim->bots && (pl.isBot || pl.name.find("[NPC]") != std::string::npos || pl.name.find("[npc]") != std::string::npos)) return;
-                    // «Сквозь стены» (aim->walls): если выключено — наводимся только на видимых игроков
-                    if (!aim->walls && !pl.canBeSeen) return;
+                    // «Сквозь стены» (aim->walls): если выключено — наводимся только если виден (или на дистанции < 3.5м)
+                    if (!aim->walls && !pl.canBeSeen && pl.distance > 3.5f) return;
 
                     // Точка прицеливания: корпус (центр масс 0.85-0.95м от ног) или голова (1.62м)
                     const double plH = pl.height > 0.5 ? pl.height : 1.8;
@@ -1020,21 +1020,20 @@ void GUIManager::Render(HDC hdc) {
                     aim->hasTarget = true;
                     aim->ticks++;
 
-                    // Берем интерполированные координаты цели
+                    // Берем координаты цели (работает одинаково надежно и на стоячих, и на движущихся)
                     BloodAim::Point position{ bestTarget->pos.x, bestTarget->pos.y, bestTarget->pos.z };
 
                     // Предикт движения: применяем только если пользователь настроил aim->predict > 0
                     if (aim->predict > 0.01f || aim->vPredict > 0.01f) {
-                        const double horizontalLead = static_cast<double>(aim->predict) * 0.2;
-                        const double verticalLead = static_cast<double>(aim->vPredict) * 0.2;
-                        // Используем vel (блоков/тик) если есть, либо смещение rawPos - prevTick
+                        const double horizontalLead = std::clamp(static_cast<double>(aim->predict) * 0.1, 0.0, 1.0);
+                        const double verticalLead = std::clamp(static_cast<double>(aim->vPredict) * 0.1, 0.0, 0.2);
                         double vx = (bestTarget->vel.x != 0.0) ? bestTarget->vel.x : (bestTarget->rawPos.x - bestTarget->prevTick.x);
                         double vy = (bestTarget->vel.y != 0.0) ? bestTarget->vel.y : (bestTarget->rawPos.y - bestTarget->prevTick.y);
                         double vz = (bestTarget->vel.z != 0.0) ? bestTarget->vel.z : (bestTarget->rawPos.z - bestTarget->prevTick.z);
 
                         position.x += vx * horizontalLead;
                         position.z += vz * horizontalLead;
-                        position.y += std::clamp(vy * verticalLead, -0.5, 0.5);
+                        position.y += std::clamp(vy * verticalLead, -0.25, 0.25);
                     }
 
                     const double bH = bestTarget->height > 0.5 ? bestTarget->height : 1.8;
@@ -1046,17 +1045,13 @@ void GUIManager::Render(HDC hdc) {
                         float finalPitch = facing.pitch;
 
                         // Сглаживание: 1 — мгновенная наводка (snap), 2..7 — плавная интерполяция
-                        const DWORD now = GetTickCount();
-                        const DWORD elapsedMs = lastAimUpdate == 0 ? 16 : (now - lastAimUpdate);
-                        lastAimUpdate = now;
-
                         const float smooth = std::clamp(aim->smoothness, 1.0f, 7.0f);
                         if (smooth > 1.05f) {
-                            const float dt = std::clamp(static_cast<float>(elapsedMs) / 1000.0f, 0.005f, 0.05f);
-                            const float response = 20.0f / smooth;
-                            const float alpha = std::clamp(1.0f - std::exp(-response * dt), 0.05f, 1.0f);
-                            finalYaw = yaw + static_cast<float>(BloodAim::Wrap(facing.yaw - yaw)) * alpha;
-                            finalPitch = pitch + static_cast<float>(BloodAim::Wrap(facing.pitch - pitch)) * alpha;
+                            float deltaYaw = static_cast<float>(BloodAim::Wrap(facing.yaw - yaw));
+                            float deltaPitch = facing.pitch - pitch; // Строго прямое расстояние по pitch без wrap!
+
+                            finalYaw = yaw + (deltaYaw / smooth);
+                            finalPitch = pitch + (deltaPitch / smooth);
                         }
 
                         finalPitch = std::clamp(finalPitch, -90.0f, 90.0f);
@@ -1331,29 +1326,7 @@ void GUIManager::Render(HDC hdc) {
 
     // Рендерим ImGui
     ImGui::Render();
-    // Иконки ресурспака часто увеличиваются с 16/32 px до размера HUD.
-    // На время только ImGui-прохода включаем линейную фильтрацию атласа,
-    // затем сразу возвращаем исходные параметры Minecraft-текстуры.
-    const GLuint itemAtlas = JVMBridge::Get().Data().atlasTextureId;
-    if (itemAtlas != 0) {
-        GLint previousTexture = 0;
-        GLint previousMinFilter = GL_NEAREST;
-        GLint previousMagFilter = GL_NEAREST;
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
-        glBindTexture(GL_TEXTURE_2D, itemAtlas);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &previousMinFilter);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &previousMagFilter);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
-        ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
-        glBindTexture(GL_TEXTURE_2D, itemAtlas);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, previousMinFilter);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, previousMagFilter);
-        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
-    } else {
-        ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
-    }
+    ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
 
     // ── Полное восстановление расширенного стейта OpenGL ──────────────────────
     if (pfn_glBindBuffer) {

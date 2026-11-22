@@ -1129,21 +1129,33 @@ void ClickGUI::DrawContent(float s, float winW, float winH, const ImVec2& winPos
             for (const auto& cName : cfgList) {
                 ImGui::PushID(cName.c_str());
                 float itemW = ImGui::GetContentRegionAvail().x;
-                float delBtnW = 32.0f * s;
-                float loadBtnW = 84.0f * s;
+                float delBtnW = 28.0f * s;
+                float saveBtnW = 82.0f * s;
+                float loadBtnW = 82.0f * s;
+                float spacing = 6.0f * s;
 
                 ImGui::BeginGroup();
                 ImGui::TextColored(ImVec4(0.9f, 0.92f, 0.98f, 1.0f), "%s", cName.c_str());
                 ImGui::TextColored(ImVec4(0.45f, 0.50f, 0.62f, 1.0f), ".cfg файл");
                 ImGui::EndGroup();
 
-                ImGui::SameLine(itemW - delBtnW - loadBtnW - 4.0f * s);
+                ImGui::SameLine(itemW - delBtnW - saveBtnW - loadBtnW - spacing * 2);
                 if (ImGui::Button("Загрузить", ImVec2(loadBtnW, 30.0f * s))) {
                     ConfigManager::Get().LoadConfig(cName, this);
                     strncpy_s(s_newCfgName, cName.c_str(), sizeof(s_newCfgName) - 1);
                 }
 
-                ImGui::SameLine();
+                ImGui::SameLine(0, spacing);
+                ImGui::PushStyleColor(ImGuiCol_Button, accent.primary);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, accent.secondary);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(255, 255, 255, 200));
+                if (ImGui::Button("Сохранить", ImVec2(saveBtnW, 30.0f * s))) {
+                    ConfigManager::Get().SaveConfig(cName, this);
+                    strncpy_s(s_newCfgName, cName.c_str(), sizeof(s_newCfgName) - 1);
+                }
+                ImGui::PopStyleColor(3);
+
+                ImGui::SameLine(0, spacing);
                 if (ImGui::Button("X", ImVec2(delBtnW, 30.0f * s))) {
                     ConfigManager::Get().DeleteConfig(cName);
                 }

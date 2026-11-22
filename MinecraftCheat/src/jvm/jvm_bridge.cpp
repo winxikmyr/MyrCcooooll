@@ -4647,14 +4647,35 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
             }
         }
 
-        if (uuidObj) {
-            env->DeleteLocalRef(uuidObj);
-            uuidObj = nullptr;
-        }
-
         if (npiObj) {
             jclass cNPI = env->GetObjectClass(npiObj);
-            // 1.1 bsc.l() -> hh (DisplayName в Tab)
+            // 1.1 bsc.a() -> GameProfile.getName() и GameProfile.getId()
+            jmethodID mNpiProf = env->GetMethodID(cNPI, "a", "()Lcom/mojang/authlib/GameProfile;");
+            if (!mNpiProf) { env->ExceptionClear(); mNpiProf = env->GetMethodID(cNPI, "getGameProfile", "()Lcom/mojang/authlib/GameProfile;"); }
+            if (!mNpiProf) { env->ExceptionClear(); mNpiProf = env->GetMethodID(cNPI, "func_178845_a", "()Lcom/mojang/authlib/GameProfile;"); }
+            if (mNpiProf) {
+                jobject prof = env->CallObjectMethod(npiObj, mNpiProf);
+                if (prof && !env->ExceptionCheck()) {
+                    jclass cProf = env->GetObjectClass(prof);
+                    jmethodID mPName = env->GetMethodID(cProf, "getName", "()Ljava/lang/String;");
+                    if (mPName) {
+                        auto jPN = reinterpret_cast<jstring>(env->CallObjectMethod(prof, mPName));
+                        if (jPN && !env->ExceptionCheck()) {
+                            const char* s = env->GetStringUTFChars(jPN, nullptr);
+                            if (s) {
+                                std::string cand = ExtractRealPlayerName(s, m_data.username);
+                                if (IsValidPlayerName(cand) && !EqualCaseInsensitive(cand, m_data.username) && !EqualCaseInsensitive(cand, GetInjectorUsername())) resolvedRealName = cand;
+                                env->ReleaseStringUTFChars(jPN, s);
+                            }
+                            env->DeleteLocalRef(jPN);
+                        } else env->ExceptionClear();
+                    }
+                    env->DeleteLocalRef(cProf);
+                    env->DeleteLocalRef(prof);
+                } else env->ExceptionClear();
+            }
+
+            // 1.2 bsc.l() -> hh (DisplayName в Tab)
             if (resolvedRealName.empty()) {
                 jmethodID mNpiDisp = env->GetMethodID(cNPI, "l", "()Lhh;");
                 if (!mNpiDisp) { env->ExceptionClear(); mNpiDisp = env->GetMethodID(cNPI, "getDisplayName", "()Lnet/minecraft/util/text/ITextComponent;"); }
@@ -4683,35 +4704,13 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                     } else env->ExceptionClear();
                 }
             }
-            // 1.2 bsc.a() -> GameProfile.getName()
-            if (resolvedRealName.empty()) {
-                jmethodID mNpiProf = env->GetMethodID(cNPI, "a", "()Lcom/mojang/authlib/GameProfile;");
-                if (!mNpiProf) { env->ExceptionClear(); mNpiProf = env->GetMethodID(cNPI, "getGameProfile", "()Lcom/mojang/authlib/GameProfile;"); }
-                if (!mNpiProf) { env->ExceptionClear(); mNpiProf = env->GetMethodID(cNPI, "func_178845_a", "()Lcom/mojang/authlib/GameProfile;"); }
-                if (mNpiProf) {
-                    jobject prof = env->CallObjectMethod(npiObj, mNpiProf);
-                    if (prof && !env->ExceptionCheck()) {
-                        jclass cProf = env->GetObjectClass(prof);
-                        jmethodID mPName = env->GetMethodID(cProf, "getName", "()Ljava/lang/String;");
-                        if (mPName) {
-                            auto jPN = reinterpret_cast<jstring>(env->CallObjectMethod(prof, mPName));
-                            if (jPN && !env->ExceptionCheck()) {
-                                const char* s = env->GetStringUTFChars(jPN, nullptr);
-                                if (s) {
-                                    std::string cand = ExtractRealPlayerName(s, m_data.username);
-                                    if (IsValidPlayerName(cand) && !EqualCaseInsensitive(cand, m_data.username) && !EqualCaseInsensitive(cand, GetInjectorUsername())) resolvedRealName = cand;
-                                    env->ReleaseStringUTFChars(jPN, s);
-                                }
-                                env->DeleteLocalRef(jPN);
-                            } else env->ExceptionClear();
-                        }
-                        env->DeleteLocalRef(cProf);
-                        env->DeleteLocalRef(prof);
-                    } else env->ExceptionClear();
-                }
-            }
             env->DeleteLocalRef(cNPI);
             env->DeleteLocalRef(npiObj);
+        }
+
+        if (uuidObj) {
+            env->DeleteLocalRef(uuidObj);
+            uuidObj = nullptr;
         }
 
         // ── Шаг 2: Entity.i_().d() (Minecraft getDisplayName().getFormattedText()) ──

@@ -5373,6 +5373,29 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
     if (!mIsAir) { env->ExceptionClear(); mIsAir = env->GetMethodID(cWorld, "isAirBlock", "(Lnet/minecraft/util/math/BlockPos;)Z"); }
     if (!mIsAir) { env->ExceptionClear(); mIsAir = env->GetMethodID(cWorld, "func_175623_d", "(Lnet/minecraft/util/math/BlockPos;)Z"); }
 
+    // World.getBlockState(BlockPos) -> IBlockState (func_180495_p / o)
+    jmethodID mGetBlockState = env->GetMethodID(cWorld, "o", "(Let;)Lawt;");
+    if (!mGetBlockState) { env->ExceptionClear(); mGetBlockState = env->GetMethodID(cWorld, "getBlockState", "(Lnet/minecraft/util/math/BlockPos;)Lnet/minecraft/block/state/IBlockState;"); }
+    if (!mGetBlockState) { env->ExceptionClear(); mGetBlockState = env->GetMethodID(cWorld, "func_180495_p", "(Let;)Lawt;"); }
+    if (!mGetBlockState) { env->ExceptionClear(); mGetBlockState = env->GetMethodID(cWorld, "func_180495_p", "(Lnet/minecraft/util/math/BlockPos;)Lnet/minecraft/block/state/IBlockState;"); }
+
+    jclass cStateClass = FindMCClass(env, cl, "awt");
+    if (!cStateClass) cStateClass = FindMCClass(env, cl, "net/minecraft/block/state/IBlockState");
+    jmethodID mStateGetBlock = cStateClass ? env->GetMethodID(cStateClass, "u", "()Laow;") : nullptr;
+    if (!mStateGetBlock && cStateClass) { env->ExceptionClear(); mStateGetBlock = env->GetMethodID(cStateClass, "u", "()Laou;"); }
+    if (!mStateGetBlock && cStateClass) { env->ExceptionClear(); mStateGetBlock = env->GetMethodID(cStateClass, "c", "()Laow;"); }
+    if (!mStateGetBlock && cStateClass) { env->ExceptionClear(); mStateGetBlock = env->GetMethodID(cStateClass, "d", "()Laow;"); }
+    if (!mStateGetBlock && cStateClass) { env->ExceptionClear(); mStateGetBlock = env->GetMethodID(cStateClass, "getBlock", "()Lnet/minecraft/block/Block;"); }
+    if (!mStateGetBlock && cStateClass) { env->ExceptionClear(); mStateGetBlock = env->GetMethodID(cStateClass, "func_177230_c", "()Lnet/minecraft/block/Block;"); }
+
+    jclass cBlockClass = FindMCClass(env, cl, "aow");
+    if (!cBlockClass) cBlockClass = FindMCClass(env, cl, "aou");
+    if (!cBlockClass) cBlockClass = FindMCClass(env, cl, "net/minecraft/block/Block");
+    jmethodID mBlockGetId = cBlockClass ? env->GetStaticMethodID(cBlockClass, "a", "(Laow;)I") : nullptr;
+    if (!mBlockGetId && cBlockClass) { env->ExceptionClear(); mBlockGetId = env->GetStaticMethodID(cBlockClass, "a", "(Laou;)I"); }
+    if (!mBlockGetId && cBlockClass) { env->ExceptionClear(); mBlockGetId = env->GetStaticMethodID(cBlockClass, "getIdFromBlock", "(Lnet/minecraft/block/Block;)I"); }
+    if (!mBlockGetId && cBlockClass) { env->ExceptionClear(); mBlockGetId = env->GetStaticMethodID(cBlockClass, "func_149682_b", "(Lnet/minecraft/block/Block;)I"); }
+
     jclass cSlot = FindMCClass(env, cl, "vl");
     if (!cSlot) cSlot = FindMCClass(env, cl, "net/minecraft/inventory/EntityEquipmentSlot");
     jfieldID fStandSlots[6] = { nullptr };
@@ -5950,7 +5973,7 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                     newEntityOres.push_back(nodeInfo);
                                 }
 
-                                // 2. AutoMine: поиск блоков вокруг ArmorStand (1-в-1 как в AutoMine.java)
+                                // 2. AutoMine: поиск блоков вокруг ArmorStand (1-в-1 как в AutoMine.java: только руды и дерево)
                                 if (m_autoMineEnabled && dist <= 10.0 && cBP && mInitBP && mIsAir) {
                                     int iX = static_cast<int>(floor(sInterpX));
                                     int iY = static_cast<int>(floor(sInterpY));
@@ -5960,9 +5983,35 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                     int bestCX = 0, bestCY = 0, bestCZ = 0;
                                     bool foundBlock = false;
 
-                                    // Обход области 4x4 по горизонтали [-2, 1]. Сначала
-                                    // проверяем уровень стойки, затем блок ниже: если
-                                    // центры равноудалены, цель остаётся на правильном уровне.
+                                    // Лямбда проверки: является ли ID блока рудой или деревом (1-в-1 по AutoMine.java)
+                                    // 14: Золотая руда, 15: Железная руда, 16: Угольная руда, 21: Лазурит, 56: Алмазная руда, 73/74: Редстоун, 129: Изумруд, 153: Кварц
+                                    // 17: Log (Дерево дуб/сосна/береза/джунгли), 162: Log2 (Акация/темный дуб), 159: Stained Hardened Clay (RustEx кастомная глина/руда)
+                                    // 1: Stone (камень), 4: Cobblestone, 49: Obsidian (серверные рудные жилы RustEx)
+                                    auto IsAutoMineBlock = [](int blockId) -> bool {
+                                        if (blockId <= 0) return false;
+                                        switch (blockId) {
+                                            case 14:  // Gold Ore
+                                            case 15:  // Iron Ore
+                                            case 16:  // Coal Ore
+                                            case 21:  // Lapis Ore
+                                            case 56:  // Diamond Ore
+                                            case 73:  // Redstone Ore
+                                            case 74:  // Lit Redstone Ore
+                                            case 129: // Emerald Ore
+                                            case 153: // Quartz Ore
+                                            case 17:  // Wood Log
+                                            case 162: // Wood Log 2
+                                            case 159: // Stained Hardened Clay (Терракота / RustEx руда)
+                                            case 172: // Hardened Clay
+                                            case 1:   // Stone (RustEx каменная жила)
+                                            case 4:   // Cobblestone
+                                                return true;
+                                            default:
+                                                return false;
+                                        }
+                                    };
+
+                                    // Обход области 4x4 по горизонтали [-2, 1] и по вертикали [0, -1]
                                     for (int ox = -2; ox < 2; ++ox) {
                                         for (int oz = -2; oz < 2; ++oz) {
                                             for (int oy = 0; oy >= -1; --oy) {
@@ -5974,8 +6023,33 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                                 if (bp && !env->ExceptionCheck()) {
                                                     bool isAir = env->CallBooleanMethod(world, mIsAir, bp);
                                                     if (env->ExceptionCheck()) { env->ExceptionClear(); isAir = true; }
-                                                    env->DeleteLocalRef(bp);
+
+                                                    bool isValidTarget = false;
                                                     if (!isAir) {
+                                                        // Если доступен getBlockState — проверяем конкретный тип блока (руда/дерево)
+                                                        if (mGetBlockState && mStateGetBlock && mBlockGetId) {
+                                                            jobject stateObj = env->CallObjectMethod(world, mGetBlockState, bp);
+                                                            if (stateObj && !env->ExceptionCheck()) {
+                                                                jobject blockObj = env->CallObjectMethod(stateObj, mStateGetBlock);
+                                                                if (blockObj && !env->ExceptionCheck()) {
+                                                                    int bId = env->CallStaticIntMethod(cBlockClass, mBlockGetId, blockObj);
+                                                                    if (env->ExceptionCheck()) { env->ExceptionClear(); bId = 0; }
+                                                                    if (IsAutoMineBlock(bId)) {
+                                                                        isValidTarget = true;
+                                                                    }
+                                                                    env->DeleteLocalRef(blockObj);
+                                                                } else env->ExceptionClear();
+                                                                env->DeleteLocalRef(stateObj);
+                                                            } else env->ExceptionClear();
+                                                        } else {
+                                                            // Fallback: любой твердый блок
+                                                            isValidTarget = true;
+                                                        }
+                                                    }
+
+                                                    env->DeleteLocalRef(bp);
+
+                                                    if (isValidTarget) {
                                                         double ddx = (cx + 0.5) - sInterpX;
                                                         double ddy = (cy + 0.5) - sInterpY;
                                                         double ddz = (cz + 0.5) - sInterpZ;

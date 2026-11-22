@@ -2,6 +2,7 @@
 #include "gl_hook.h"
 #include "../gui/gui_manager.h"
 #include "../gui/clickgui.h"
+#include "../overlay/stream_overlay.h"
 #include "../modules/module_viewmodel.h"
 #include "../modules/module_aspect.h"
 #include "../modules/module_titles.h"
@@ -301,14 +302,19 @@ BOOL WINAPI Hooked_wglSwapBuffers(HDC hdc) {
         static bool s_lastAffinity = false;
         if (s_lastAffinity != screenProtect) {
             s_lastAffinity = screenProtect;
-            SetWindowDisplayAffinity(s_cachedHwnd, screenProtect ? 0x00000011 : WDA_NONE);
+            // Окно Minecraft НИКОГДА не маркируется WDA_EXCLUDEFROMCAPTURE, чтобы игра не исчезала со стрима!
+            SetWindowDisplayAffinity(s_cachedHwnd, WDA_NONE);
+            if (screenProtect) {
+                StreamOverlay::Get().Start(s_cachedHwnd, GetModuleHandleA("MyrLegit.dll"));
+            } else {
+                StreamOverlay::Get().Stop();
+            }
         }
     }
 
     // Отрисовка ImGui интерфейса и оверлеев
-    // При включенном ScreenProtect используем нормальный бэк-буфер перед Swap,
-    // а скрытие в OBS, Discord, AnyDesk и записи обеспечивается SetWindowDisplayAffinity(0x11 / WDA_EXCLUDEFROMCAPTURE).
-    // Рисование в GL_FRONT исключено, так как на современных драйверах OpenGL оно вызывало сильное мерцание экрана.
+    // При включенном ScreenProtect Render() пропускает вывод во фреймбуфер игры,
+    // а независимый D3D9 оверлей StreamOverlay рисует поверх с флагом 0x11 (WDA_EXCLUDEFROMCAPTURE)
     GUIManager::Get().Render(hdc);
     BOOL res = GLHook::Get().Original ? GLHook::Get().Original(hdc) : TRUE;
 
@@ -341,7 +347,12 @@ BOOL WINAPI Hooked_gdiSwapBuffers(HDC hdc) {
         static bool s_lastAffinityGdi = false;
         if (s_lastAffinityGdi != screenProtect) {
             s_lastAffinityGdi = screenProtect;
-            SetWindowDisplayAffinity(s_cachedHwnd, screenProtect ? 0x00000011 : WDA_NONE);
+            SetWindowDisplayAffinity(s_cachedHwnd, WDA_NONE);
+            if (screenProtect) {
+                StreamOverlay::Get().Start(s_cachedHwnd, GetModuleHandleA("MyrLegit.dll"));
+            } else {
+                StreamOverlay::Get().Stop();
+            }
         }
     }
 

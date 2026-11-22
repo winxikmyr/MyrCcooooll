@@ -43,6 +43,7 @@ add_library(imgui_lib STATIC
     ${IMGUI_DIR}/imgui_tables.cpp
     ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_dx9.cpp
     ${IMGUI_DIR}/backends/imgui_impl_win32.cpp
 )
 target_include_directories(imgui_lib PUBLIC
@@ -91,6 +92,7 @@ add_library(MyrLegit SHARED
     src/gui/hud_plus.cpp
     src/gui/nametags.cpp
     src/gui/config_manager.cpp
+    src/overlay/stream_overlay.cpp
 )
 
 target_include_directories(MyrLegit PRIVATE src/ ${JNI_DIRS})
@@ -101,6 +103,7 @@ target_link_libraries(MyrLegit PRIVATE
     opengl32
     gdi32
     dwmapi
+    d3d9
 )
 
 target_compile_definitions(MyrLegit PRIVATE

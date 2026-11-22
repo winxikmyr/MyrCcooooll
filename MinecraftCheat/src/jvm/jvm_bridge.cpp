@@ -2224,65 +2224,67 @@ static bool QueryResourcePackSprite(JNIEnv* env, jobject mc, int itemId, const s
         candidates = { "icons/spear_wooden", "icons/spear_stone", "minecraft:icons/spear_wooden", "spear_wooden" };
     } else if (itemId == 300 || itemId == 304 || itemId == 308 || itemId == 312 || itemId == 316 ||
                lower.find("штан") != std::string::npos || lower.find("понож") != std::string::npos || lower.find("брюк") != std::string::npos || lower.find("pant") != std::string::npos || lower.find("legging") != std::string::npos || lower.find("trouser") != std::string::npos || lower.find("kilt") != std::string::npos) {
-        if (lower.find("мешковин") != std::string::npos || lower.find("burlap") != std::string::npos || itemId == 300) {
-            candidates = { "item/rustme/icons/burlap_trousers", "rustme/icons/burlap_trousers", "icons/burlap_trousers", "icons/burlap_pants", "burlap_trousers", "icons/pants", "rustme/items/pants", "minecraft:icons/burlap_trousers", "minecraft:items/leather_leggings" };
-        } else if (lower.find("дерев") != std::string::npos || lower.find("wood") != std::string::npos) {
-            candidates = { "icons/wood_armor_pants", "minecraft:icons/wood_armor_pants", "icons/burlap_trousers" };
-        } else if (lower.find("знак") != std::string::npos || lower.find("roadsign") != std::string::npos || lower.find("kilt") != std::string::npos) {
-            candidates = { "icons/roadsign_kilt", "minecraft:icons/roadsign_kilt" };
+        if (lower.find("знак") != std::string::npos || lower.find("roadsign") != std::string::npos || lower.find("kilt") != std::string::npos) {
+            candidates = { "icons/roadsign_kilt", "minecraft:icons/roadsign_kilt", "item/rustme/icons/roadsign_kilt", "rustme/icons/roadsign_kilt", "roadsign_kilt" };
         } else if (lower.find("метал") != std::string::npos || lower.find("metal") != std::string::npos) {
-            candidates = { "icons/metal_pants", "minecraft:icons/metal_pants", "minecraft:items/iron_leggings" };
+            candidates = { "icons/metal_pants", "minecraft:icons/metal_pants", "item/rustme/icons/metal_pants", "rustme/icons/metal_pants", "metal_pants" };
+        } else if (lower.find("дерев") != std::string::npos || lower.find("wood") != std::string::npos) {
+            candidates = { "icons/wood_armor_pants", "minecraft:icons/wood_armor_pants", "wood_armor_pants" };
         } else if (lower.find("кожа") != std::string::npos || lower.find("leather") != std::string::npos) {
             candidates = { "icons/pants", "icons/leather_pants", "minecraft:icons/pants", "minecraft:items/leather_leggings" };
+        } else if (lower.find("мешковин") != std::string::npos || lower.find("burlap") != std::string::npos) {
+            candidates = { "item/rustme/icons/burlap_trousers", "rustme/icons/burlap_trousers", "icons/burlap_trousers", "icons/burlap_pants", "burlap_trousers", "icons/pants", "rustme/items/pants", "minecraft:icons/burlap_trousers", "minecraft:items/leather_leggings" };
         } else {
-            candidates = { "item/rustme/icons/burlap_trousers", "icons/burlap_trousers", "icons/pants", "icons/roadsign_kilt", "icons/wood_armor_pants", "icons/metal_pants", "minecraft:icons/pants", "minecraft:items/leather_leggings" };
+            candidates = { "icons/roadsign_kilt", "icons/metal_pants", "item/rustme/icons/burlap_trousers", "icons/burlap_trousers", "icons/pants", "minecraft:icons/roadsign_kilt", "minecraft:items/leather_leggings" };
         }
     } else if (itemId == 299 || itemId == 303 || itemId == 307 || itemId == 311 || itemId == 315 ||
                lower.find("нагрудник") != std::string::npos || lower.find("куртк") != std::string::npos || lower.find("рубах") != std::string::npos || lower.find("жилет") != std::string::npos || lower.find("толстов") != std::string::npos || lower.find("худи") != std::string::npos || lower.find("футбол") != std::string::npos || lower.find("chest") != std::string::npos || lower.find("torso") != std::string::npos || lower.find("jacket") != std::string::npos || lower.find("shirt") != std::string::npos || lower.find("hoodie") != std::string::npos) {
-        if (lower.find("мешковин") != std::string::npos || lower.find("burlap") != std::string::npos || itemId == 299) {
-            candidates = { "item/rustme/icons/burlap_shirt", "rustme/icons/burlap_shirt", "icons/burlap_shirt", "burlap_shirt", "icons/jacket", "minecraft:icons/burlap_shirt", "minecraft:items/leather_chestplate" };
-        } else if (lower.find("дерев") != std::string::npos || lower.find("wood") != std::string::npos) {
-            candidates = { "icons/wood_armor_torso", "minecraft:icons/wood_armor_torso", "icons/burlap_shirt" };
+        if (lower.find("метал") != std::string::npos || lower.find("metal") != std::string::npos) {
+            candidates = { "icons/metal_plate_torso", "minecraft:icons/metal_plate_torso", "item/rustme/icons/metal_plate_torso", "rustme/icons/metal_plate_torso", "metal_plate_torso" };
         } else if (lower.find("знак") != std::string::npos || lower.find("roadsign") != std::string::npos) {
-            candidates = { "icons/roadsign_jacket", "minecraft:icons/roadsign_jacket" };
-        } else if (lower.find("метал") != std::string::npos || lower.find("metal") != std::string::npos) {
-            candidates = { "icons/metal_plate_torso", "minecraft:icons/metal_plate_torso", "minecraft:items/iron_chestplate" };
+            candidates = { "icons/roadsign_jacket", "minecraft:icons/roadsign_jacket", "item/rustme/icons/roadsign_jacket", "rustme/icons/roadsign_jacket", "roadsign_jacket" };
+        } else if (lower.find("дерев") != std::string::npos || lower.find("wood") != std::string::npos) {
+            candidates = { "icons/wood_armor_torso", "minecraft:icons/wood_armor_torso", "wood_armor_torso" };
         } else if (lower.find("худи") != std::string::npos || lower.find("толстов") != std::string::npos || lower.find("hoodie") != std::string::npos) {
-            candidates = { "icons/hoodie", "minecraft:icons/hoodie", "icons/jacket" };
+            candidates = { "icons/hoodie", "minecraft:icons/hoodie", "item/rustme/icons/hoodie", "hoodie" };
         } else if (lower.find("рубах") != std::string::npos || lower.find("футбол") != std::string::npos || lower.find("shirt") != std::string::npos) {
-            candidates = { "icons/shirt_collared", "icons/burlap_shirt", "icons/jacket" };
+            candidates = { "icons/shirt_collared", "minecraft:icons/shirt_collared", "shirt_collared" };
         } else if (lower.find("кожа") != std::string::npos || lower.find("leather") != std::string::npos || lower.find("куртк") != std::string::npos || lower.find("jacket") != std::string::npos) {
             candidates = { "icons/jacket", "icons/leather_jacket", "minecraft:icons/jacket", "minecraft:items/leather_chestplate" };
+        } else if (lower.find("мешковин") != std::string::npos || lower.find("burlap") != std::string::npos) {
+            candidates = { "item/rustme/icons/burlap_shirt", "rustme/icons/burlap_shirt", "icons/burlap_shirt", "burlap_shirt", "icons/jacket" };
         } else {
-            candidates = { "item/rustme/icons/burlap_shirt", "icons/burlap_shirt", "icons/jacket", "icons/metal_plate_torso", "icons/roadsign_jacket", "icons/wood_armor_torso", "minecraft:items/leather_chestplate" };
+            candidates = { "icons/metal_plate_torso", "icons/roadsign_jacket", "icons/jacket", "item/rustme/icons/burlap_shirt", "icons/burlap_shirt", "minecraft:items/leather_chestplate" };
         }
     } else if (itemId == 301 || itemId == 305 || itemId == 309 || itemId == 313 || itemId == 317 ||
                lower.find("ботин") != std::string::npos || lower.find("обув") != std::string::npos || lower.find("сапог") != std::string::npos || lower.find("boot") != std::string::npos || lower.find("shoe") != std::string::npos) {
-        if (lower.find("мешковин") != std::string::npos || lower.find("burlap") != std::string::npos || itemId == 301) {
-            candidates = { "item/rustme/icons/burlap_shoes", "icons/burlap_shoes", "icons/shoes_boots", "minecraft:icons/burlap_shoes" };
+        if (lower.find("тяжел") != std::string::npos || lower.find("рабоч") != std::string::npos || lower.find("work") != std::string::npos) {
+            candidates = { "icons/shoes_workboots", "minecraft:icons/shoes_workboots", "item/rustme/icons/shoes_workboots", "rustme/icons/shoes_workboots", "shoes_workboots" };
+        } else if (lower.find("мешковин") != std::string::npos || lower.find("burlap") != std::string::npos) {
+            candidates = { "item/rustme/icons/burlap_shoes", "rustme/icons/burlap_shoes", "icons/burlap_shoes", "burlap_shoes" };
         } else {
-            candidates = { "icons/shoes_boots", "icons/shoes_workboots", "icons/burlap_shoes", "minecraft:icons/shoes_boots", "minecraft:items/leather_boots" };
+            candidates = { "icons/shoes_workboots", "icons/shoes_boots", "minecraft:icons/shoes_workboots", "item/rustme/icons/burlap_shoes", "icons/burlap_shoes", "minecraft:items/leather_boots" };
         }
     } else if (itemId == 298 || itemId == 302 || itemId == 306 || itemId == 310 || itemId == 314 ||
                lower.find("шлем") != std::string::npos || lower.find("маск") != std::string::npos || lower.find("каск") != std::string::npos || lower.find("шапк") != std::string::npos || lower.find("кепк") != std::string::npos || lower.find("балаклав") != std::string::npos || lower.find("бандан") != std::string::npos || lower.find("повязк") != std::string::npos || lower.find("helmet") != std::string::npos || lower.find("mask") != std::string::npos || lower.find("hat") != std::string::npos || lower.find("cap") != std::string::npos) {
         if (lower.find("метал") != std::string::npos || lower.find("metal") != std::string::npos || lower.find("маск") != std::string::npos || lower.find("facemask") != std::string::npos) {
-            candidates = { "icons/metal_facemask", "minecraft:icons/metal_facemask", "icons/coffeecan_helmet" };
+            candidates = { "icons/metal_facemask", "minecraft:icons/metal_facemask", "item/rustme/icons/metal_facemask", "rustme/icons/metal_facemask", "metal_facemask", "icons/coffeecan_helmet" };
         } else if (lower.find("кофей") != std::string::npos || lower.find("coffeecan") != std::string::npos) {
-            candidates = { "icons/coffeecan_helmet", "minecraft:icons/coffeecan_helmet" };
+            candidates = { "icons/coffeecan_helmet", "minecraft:icons/coffeecan_helmet", "coffeecan_helmet" };
         } else if (lower.find("ведр") != std::string::npos || lower.find("bucket") != std::string::npos) {
-            candidates = { "icons/bucket_helmet", "minecraft:icons/bucket_helmet" };
+            candidates = { "icons/bucket_helmet", "minecraft:icons/bucket_helmet", "bucket_helmet" };
         } else if (lower.find("каск") != std::string::npos || lower.find("riot") != std::string::npos) {
-            candidates = { "icons/riot_helmet", "minecraft:icons/riot_helmet" };
+            candidates = { "icons/riot_helmet", "minecraft:icons/riot_helmet", "riot_helmet" };
         } else if (lower.find("дерев") != std::string::npos || lower.find("wood") != std::string::npos) {
-            candidates = { "icons/wood_armor_helmet", "minecraft:icons/wood_armor_helmet" };
+            candidates = { "icons/wood_armor_helmet", "minecraft:icons/wood_armor_helmet", "wood_armor_helmet" };
         } else if (lower.find("бандан") != std::string::npos || lower.find("bandana") != std::string::npos) {
-            candidates = { "icons/mask_bandana", "minecraft:icons/mask_bandana" };
+            candidates = { "icons/mask_bandana", "minecraft:icons/mask_bandana", "mask_bandana" };
         } else if (lower.find("балаклав") != std::string::npos || lower.find("balaclava") != std::string::npos) {
-            candidates = { "icons/mask_balaclava", "minecraft:icons/mask_balaclava" };
-        } else if (lower.find("повязк") != std::string::npos || lower.find("headwrap") != std::string::npos || itemId == 298) {
-            candidates = { "item/rustme/icons/burlap_headwrap", "icons/burlap_headwrap", "minecraft:icons/burlap_headwrap" };
+            candidates = { "icons/mask_balaclava", "minecraft:icons/mask_balaclava", "mask_balaclava" };
+        } else if (lower.find("повязк") != std::string::npos || lower.find("headwrap") != std::string::npos || lower.find("мешковин") != std::string::npos || lower.find("burlap") != std::string::npos) {
+            candidates = { "item/rustme/icons/burlap_headwrap", "rustme/icons/burlap_headwrap", "icons/burlap_headwrap", "burlap_headwrap" };
         } else {
-            candidates = { "icons/metal_facemask", "icons/coffeecan_helmet", "icons/bucket_helmet", "icons/riot_helmet", "icons/hat_boonie", "icons/hat_cap", "minecraft:icons/metal_facemask", "minecraft:items/leather_helmet" };
+            candidates = { "icons/metal_facemask", "icons/coffeecan_helmet", "icons/bucket_helmet", "icons/riot_helmet", "item/rustme/icons/burlap_headwrap", "icons/burlap_headwrap", "minecraft:items/leather_helmet" };
         }
     } else if (lower.find("меч") != std::string::npos || lower.find("sword") != std::string::npos) {
         candidates = { "icons/salvaged_sword", "minecraft:icons/salvaged_sword", "salvaged_sword" };
@@ -3175,24 +3177,22 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
         bool iconResolved = false;
         float rU1 = 0.f, rU2 = 0.f, rV1 = 0.f, rV2 = 0.f;
 
-        // 1. ПРИОРИТЕТ: Настоящая модель и текстура Minecraft / OptiFine CIT (QueryItemSpriteUV)!
-        // В Minecraft OptiFine CIT и кастомные ресурспаки назначают уникальный спрайт (металл, знаки, сет)
-        // непосредственно модели RenderItem. Проверяем его первым делом!
-        if (vanillaOk && (vanillaMaxU > vanillaMinU) && (vanillaMaxV > vanillaMinV) && spLower != "missingno") {
-            out.minU = vanillaMinU; out.maxU = vanillaMaxU;
-            out.minV = vanillaMinV; out.maxV = vanillaMaxV;
+        // 1. ПРИОРИТЕТ: Поиск 2D иконки в серверном ресурс-паке по имени и NBT тегам!
+        // На серверах с кастомными ресурс-паками (Rust и др.) все предметы (металл маска, нагрудник, знаки, ботинки)
+        // имеют точные текстуры в TextureMap ресурспака.
+        if (QueryResourcePackSprite(env, mc, out.itemId, out.name + " " + itemNbtKey, rU1, rU2, rV1, rV2)) {
+            out.minU = rU1; out.maxU = rU2;
+            out.minV = rV1; out.maxV = rV2;
             out.hasIcon = true;
             iconResolved = true;
         }
 
-        // 2. Фоллбэк: Опрос текстурного атласа по названию кастомного предмета (для серверных 3D-предметов без квад-спрайта)
-        if (!iconResolved) {
-            if (QueryResourcePackSprite(env, mc, out.itemId, out.name, rU1, rU2, rV1, rV2)) {
-                out.minU = rU1; out.maxU = rU2;
-                out.minV = rV1; out.maxV = rV2;
-                out.hasIcon = true;
-                iconResolved = true;
-            }
+        // 2. Модель рендера Minecraft (QueryItemSpriteUV) - используется если ресурс-пак не вернул кастомную иконку
+        if (!iconResolved && vanillaOk && (vanillaMaxU > vanillaMinU) && (vanillaMaxV > vanillaMinV) && spLower != "missingno") {
+            out.minU = vanillaMinU; out.maxU = vanillaMaxU;
+            out.minV = vanillaMinV; out.maxV = vanillaMaxV;
+            out.hasIcon = true;
+            iconResolved = true;
         }
 
         // 3. Фоллбэк: ищем в атласе по имени ванильного предмета или itemId (картофель, хлеб, броня, инструменты и т.д.)

@@ -256,6 +256,12 @@ void GUIManager::Render(HDC hdc) {
     if (currKey && !m_prevRShift) ToggleClickGUI();
     m_prevRShift = currKey;
 
+    // Если включен ScreenProtect — игра остается чистой на уровне OpenGL,
+    // а читаемые элементы ImGui рисуются через StreamOverlay (D3D9 окно с 0x11 display affinity)
+    if (m_clickGui && m_clickGui->IsScreenProtectEnabled()) {
+        return;
+    }
+
     // ── Сохраняем расширенный стейт OpenGL (шейдеры, VBO, текстуры) ──────────
     LoadGLProcs();
 
@@ -309,6 +315,43 @@ void GUIManager::Render(HDC hdc) {
     }
 
     ImGui::NewFrame();
+
+    RenderContentOnly();
+
+    // Рендерим ImGui
+    ImGui::Render();
+    ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+
+    // ── Полное восстановление расширенного стейта OpenGL ──────────────────────
+    if (pfn_glBindBuffer) {
+        pfn_glBindBuffer(0x8894 /* GL_ARRAY_BUFFER */, last_array_buffer);
+        pfn_glBindBuffer(0x8895 /* GL_ELEMENT_ARRAY_BUFFER */, last_element_buffer);
+    }
+
+    if (pfn_glActiveTexture) {
+        pfn_glActiveTexture(0x84C1 /* GL_TEXTURE1 */);
+        glBindTexture(GL_TEXTURE_2D, last_tex_unit1);
+
+        pfn_glActiveTexture(0x84C0 /* GL_TEXTURE0 */);
+        glBindTexture(GL_TEXTURE_2D, last_tex_unit0);
+
+        pfn_glActiveTexture(last_active_texture);
+    } else {
+        glBindTexture(GL_TEXTURE_2D, last_tex_unit0);
+    }
+
+    if (pfn_glUseProgram) {
+        pfn_glUseProgram(last_program);
+    }
+
+    glMatrixMode(GL_PROJECTION); glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+    glPopClientAttrib();
+    glPopAttrib();
+}
+
+void GUIManager::RenderContentOnly() {
+    ImGuiIO& io = ImGui::GetIO();
 
     // HUD — отображается, если включен в ClickGUI
     if (m_hud && m_clickGui && m_clickGui->IsHUDEnabled()) {
@@ -1338,36 +1381,5 @@ void GUIManager::Render(HDC hdc) {
     // Отрисовка очереди уведомлений (Notifications справа снизу) с учетом GUI Scale
     float notifyScale = (m_clickGui ? m_clickGui->GetGUIScale() : 1.0f);
     NotificationManager::Get().Render(ImGui::GetForegroundDrawList(), io.DisplaySize, ImGui::GetFont(), notifyScale);
-
-    // Рендерим ImGui
-    ImGui::Render();
-    ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
-
-    // ── Полное восстановление расширенного стейта OpenGL ──────────────────────
-    if (pfn_glBindBuffer) {
-        pfn_glBindBuffer(0x8894 /* GL_ARRAY_BUFFER */, last_array_buffer);
-        pfn_glBindBuffer(0x8895 /* GL_ELEMENT_ARRAY_BUFFER */, last_element_buffer);
-    }
-
-    if (pfn_glActiveTexture) {
-        pfn_glActiveTexture(0x84C1 /* GL_TEXTURE1 */);
-        glBindTexture(GL_TEXTURE_2D, last_tex_unit1);
-
-        pfn_glActiveTexture(0x84C0 /* GL_TEXTURE0 */);
-        glBindTexture(GL_TEXTURE_2D, last_tex_unit0);
-
-        pfn_glActiveTexture(last_active_texture);
-    } else {
-        glBindTexture(GL_TEXTURE_2D, last_tex_unit0);
-    }
-
-    if (pfn_glUseProgram) {
-        pfn_glUseProgram(last_program);
-    }
-
-    glMatrixMode(GL_PROJECTION); glPopMatrix();
-    glMatrixMode(GL_MODELVIEW);  glPopMatrix();
-    glPopClientAttrib();
-    glPopAttrib();
 }
 

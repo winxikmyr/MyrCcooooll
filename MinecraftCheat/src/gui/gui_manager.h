@@ -17,6 +17,11 @@ public:
     // Вызывается из Hooked_wglSwapBuffers каждый кадр
     void Render(HDC hdc);
 
+    // Отрисовка контента без SwapBuffers (для D3D9 StreamOverlay)
+    void RenderContentOnly();
+
+    void ApplyStyle();
+
     bool IsClickGUIOpen() const { return m_guiOpen; }
     void ToggleClickGUI();
 
@@ -27,7 +32,6 @@ public:
 private:
     GUIManager() = default;
     void InitImGui(HDC hdc);
-    void ApplyStyle();
 
     bool m_imguiReady = false;
     bool m_guiOpen    = false;

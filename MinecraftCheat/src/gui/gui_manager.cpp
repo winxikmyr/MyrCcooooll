@@ -361,18 +361,17 @@ void GUIManager::Render(HDC hdc) {
     bool canDrawWorldHUD = mcData.isInWorld;
     bool isF5Front = (mcData.thirdPersonView == 2);
 
-    // NameProtect: скрытие собственного ника в чате
+    // NameProtect: скрытие собственного ника и ников друзей в чате и табе
     if (canDrawWorldHUD && m_clickGui && m_clickGui->IsNameProtectEnabled()) {
         auto* np = m_clickGui->GetNameProtectModule();
         if (np && !np->protectedNick.empty()) {
             std::string myNick = !mcData.username.empty() ? mcData.username : GetInjectorUsername();
-            if (!myNick.empty() && myNick != np->protectedNick) {
-                static auto s_lastChatSanitize = std::chrono::steady_clock::now();
-                auto now = std::chrono::steady_clock::now();
-                if (std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastChatSanitize).count() > 80) {
-                    s_lastChatSanitize = now;
-                    JVMBridge::Get().SanitizeChat(myNick, np->protectedNick);
-                }
+            static auto s_lastChatSanitize = std::chrono::steady_clock::now();
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastChatSanitize).count() > 80) {
+                s_lastChatSanitize = now;
+                const auto& friends = FriendManager::Get().GetFriends();
+                JVMBridge::Get().SanitizeNameProtect(myNick, np->protectedNick, friends, np->hideFriends);
             }
         }
     }
@@ -1199,25 +1198,24 @@ void GUIManager::Render(HDC hdc) {
                 double dirZ =  cos(yawRad) * cos(pitchRad);
 
                 Vec3 eyePos = mcData.camPos;
-                float bestHitDist = 6.0f; // Максимальная дистанция ограничена 6 блоками
+                float bestHitDist = 30.0f; // Увеличен радиус луча до 30 блоков
 
                 for (const auto& pl : mcData.players) {
-                    if (!targetName.empty()) break;
-                    if (pl.distance < 0.2f || pl.distance > 6.0f) continue;
+                    if (pl.distance < 0.2f || pl.distance > 30.0f) continue;
                     if (!mcData.username.empty() && mcData.username != "Player" && pl.name == mcData.username) continue;
                     if (pl.name == "Zombie" || pl.realName == "Zombie") continue;
 
-                    // Хитбокс игрока Minecraft (0.6x1.8x0.6)
-                    double hPad = 0.35;
+                    // Хитбокс игрока Minecraft с небольшим комфортным запасом для клика
+                    double hPad = 0.55;
                     double minX = pl.pos.x - hPad;
                     double maxX = pl.pos.x + hPad;
-                    double minY = pl.pos.y;
-                    double maxY = pl.pos.y + pl.height;
+                    double minY = pl.pos.y - 0.2;
+                    double maxY = pl.pos.y + pl.height + 0.3;
                     double minZ = pl.pos.z - hPad;
                     double maxZ = pl.pos.z + hPad;
 
                     // Ray-AABB intersection test
-                    double tmin = 0.0, tmax = 6.0;
+                    double tmin = 0.0, tmax = 30.0;
 
                     auto testAxis = [&](double rO, double rD, double bMin, double bMax) -> bool {
                         if (fabs(rD) < 1e-6) {
@@ -1240,6 +1238,18 @@ void GUIManager::Render(HDC hdc) {
                             targetName = pl.realName.empty() ? pl.name : pl.realName;
                         }
                     }
+                }
+
+                // Очищаем цветные коды форматирования (§)
+                if (!targetName.empty()) {
+                    std::string cleanTarget;
+                    for (size_t i = 0; i < targetName.length(); ++i) {
+                        if (static_cast<unsigned char>(targetName[i]) == 0xA7 || targetName[i] == '&' || targetName[i] == '\xA7') {
+                            if (i + 1 < targetName.length()) { i++; continue; }
+                        }
+                        cleanTarget += targetName[i];
+                    }
+                    targetName = cleanTarget;
                 }
 
                 if (!targetName.empty()) {

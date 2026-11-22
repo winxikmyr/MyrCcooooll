@@ -193,6 +193,7 @@ public:
     }
 
     void SanitizeChat(const std::string& targetName, const std::string& replacement);
+    void SanitizeNameProtect(const std::string& myNick, const std::string& protectedNick, const std::vector<std::string>& friends, bool protectFriends);
     void SetHideVanillaCrosshair(bool hide);
 
 private:

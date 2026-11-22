@@ -2,6 +2,7 @@
 #include "jvm_bridge.h"
 #include <Windows.h>
 #include <vector>
+#include <algorithm>
 #include <imgui.h>
 #include <GL/gl.h>
 #include <unordered_map>
@@ -7160,7 +7161,22 @@ std::string JVMBridge::QueryPointedPlayer() {
     }
 
     env->PopLocalFrame(nullptr);
-    return resultName;
+
+    // Удаляем цветовые коды форматирования Minecraft
+    std::string cleanResult;
+    for (size_t i = 0; i < resultName.length(); ++i) {
+        if (static_cast<unsigned char>(resultName[i]) == 0xC2 && i + 1 < resultName.length() && static_cast<unsigned char>(resultName[i + 1]) == 0xA7) {
+            if (i + 2 < resultName.length()) i += 2;
+            else i += 1;
+            continue;
+        }
+        if (static_cast<unsigned char>(resultName[i]) == 0xA7 || resultName[i] == '&') {
+            if (i + 1 < resultName.length()) i += 1;
+            continue;
+        }
+        cleanResult += resultName[i];
+    }
+    return cleanResult;
 }
 
 // ── Поиск блоков и армор стендов для AutoMine ──────────────────────────────
@@ -7219,9 +7235,9 @@ void JVMBridge::SetHideVanillaCrosshair(bool hide) {
     }
 }
 
-// ── Очистка собственного никнейма в истории чата (NameProtect) ───────────────
-void JVMBridge::SanitizeChat(const std::string& targetName, const std::string& replacement) {
-    if (targetName.empty() || replacement.empty() || targetName == replacement) return;
+// ── Очистка собственного никнейма и никнеймов друзей в истории чата и табе (NameProtect) ───
+void JVMBridge::SanitizeNameProtect(const std::string& myNick, const std::string& protectedNick, const std::vector<std::string>& friends, bool protectFriends) {
+    if (protectedNick.empty()) return;
 
     JNIEnv* env = GetJNIEnv();
     if (!env || !m_ok) return;
@@ -7256,51 +7272,6 @@ void JVMBridge::SanitizeChat(const std::string& targetName, const std::string& r
         }
     }
 
-    if (!s_fIngameGUI) return;
-
-    jobject ig = env->GetObjectField(mc, s_fIngameGUI);
-    if (!ig || env->ExceptionCheck()) { env->ExceptionClear(); return; }
-
-    if (!s_fPersistantChat) {
-        jclass cIG = env->GetObjectClass(ig);
-        if (cIG) {
-            const char* pcNames[] = { "persistantChatGUI", "field_73840_e", "l", "k", "m", "s" };
-            for (const char* pcn : pcNames) {
-                s_fPersistantChat = env->GetFieldID(cIG, pcn, "Lnet/minecraft/client/gui/GuiNewChat;");
-                if (!s_fPersistantChat) { env->ExceptionClear(); s_fPersistantChat = env->GetFieldID(cIG, pcn, "Lbvu;"); }
-                if (!s_fPersistantChat) { env->ExceptionClear(); s_fPersistantChat = env->GetFieldID(cIG, pcn, "Lbit;"); }
-                if (s_fPersistantChat) break;
-                env->ExceptionClear();
-            }
-            env->DeleteLocalRef(cIG);
-        }
-    }
-
-    if (!s_fPersistantChat) { env->DeleteLocalRef(ig); return; }
-
-    jobject chatGUI = env->GetObjectField(ig, s_fPersistantChat);
-    env->DeleteLocalRef(ig);
-    if (!chatGUI || env->ExceptionCheck()) { env->ExceptionClear(); return; }
-
-    if (!s_fDrawnChatLines || !s_fChatLines) {
-        jclass cChatGUI = env->GetObjectClass(chatGUI);
-        if (cChatGUI) {
-            const char* drawnNames[] = { "drawnChatLines", "field_146247_f", "h", "g", "f" };
-            for (const char* dn : drawnNames) {
-                s_fDrawnChatLines = env->GetFieldID(cChatGUI, dn, "Ljava/util/List;");
-                if (s_fDrawnChatLines) break;
-                env->ExceptionClear();
-            }
-            const char* chatNames[] = { "chatLines", "field_146246_g", "g", "h", "f" };
-            for (const char* cn : chatNames) {
-                jfieldID f = env->GetFieldID(cChatGUI, cn, "Ljava/util/List;");
-                if (f && f != s_fDrawnChatLines) { s_fChatLines = f; break; }
-                env->ExceptionClear();
-            }
-            env->DeleteLocalRef(cChatGUI);
-        }
-    }
-
     if (!s_cList) {
         jclass cL = env->FindClass("java/util/List");
         if (cL) {
@@ -7324,146 +7295,370 @@ void JVMBridge::SanitizeChat(const std::string& targetName, const std::string& r
         }
     }
 
-    // Собираем всевозможные вариации собственного никнейма (например "_I_Love_UOY", "I_Love_UOY", "I Love UOY")
-    std::vector<std::string> searchTargets;
-    auto AddNickVariants = [&](const std::string& n) {
-        if (n.empty() || n == "Unknown" || n == "Player" || n == replacement) return;
+    // Составляем карту замен: [искомый ник/вариант] -> [защищенное имя]
+    std::vector<std::pair<std::string, std::string>> replacements;
+    auto AddReplacementVariants = [&](const std::string& orig, const std::string& repl) {
+        if (orig.empty() || orig == "Unknown" || orig == "Player" || orig == repl) return;
         auto AddOne = [&](const std::string& v) {
-            if (v.empty() || v == replacement) return;
-            if (std::find(searchTargets.begin(), searchTargets.end(), v) == searchTargets.end()) {
-                searchTargets.push_back(v);
+            if (v.empty() || v == repl) return;
+            for (const auto& r : replacements) {
+                if (r.first == v) return;
             }
+            replacements.push_back({ v, repl });
         };
-        AddOne(n);
-        std::string withUnder = n;
+        AddOne(orig);
+        std::string withUnder = orig;
         for (char& ch : withUnder) { if (ch == ' ') ch = '_'; }
         AddOne(withUnder);
-        std::string withSpace = n;
+        std::string withSpace = orig;
         for (char& ch : withSpace) { if (ch == '_') ch = ' '; }
         AddOne(withSpace);
 
-        size_t sIdx = n.find_first_not_of('_');
-        size_t eIdx = n.find_last_not_of('_');
+        size_t sIdx = orig.find_first_not_of('_');
+        size_t eIdx = orig.find_last_not_of('_');
         if (sIdx != std::string::npos && eIdx != std::string::npos) {
-            std::string core = n.substr(sIdx, eIdx - sIdx + 1);
+            std::string core = orig.substr(sIdx, eIdx - sIdx + 1);
             AddOne(core);
             AddOne(std::string("_") + core);
             AddOne(core + "_");
             AddOne(std::string("_") + core + "_");
-            std::string coreUnder = core;
-            for (char& ch : coreUnder) { if (ch == ' ') ch = '_'; }
-            AddOne(coreUnder);
-            AddOne(std::string("_") + coreUnder);
-            AddOne(coreUnder + "_");
         }
     };
-    AddNickVariants(targetName);
-    AddNickVariants(m_data.username);
 
-    auto SanitizeList = [&](jfieldID fList) {
-        if (!fList || !s_mListSize || !s_mListGet) return;
-        jobject listObj = env->GetObjectField(chatGUI, fList);
-        if (!listObj || env->ExceptionCheck()) { env->ExceptionClear(); return; }
+    if (!myNick.empty()) {
+        AddReplacementVariants(myNick, protectedNick);
+    }
+    if (!m_data.username.empty() && m_data.username != myNick) {
+        AddReplacementVariants(m_data.username, protectedNick);
+    }
 
-        jint sz = env->CallIntMethod(listObj, s_mListSize);
-        if (env->ExceptionCheck()) { env->ExceptionClear(); sz = 0; }
-        if (sz > 100) sz = 100;
+    if (protectFriends) {
+        int fNum = 1;
+        for (const auto& fr : friends) {
+            if (fr.empty()) continue;
+            std::string friendRepl = "Friend_" + std::to_string(fNum++);
+            AddReplacementVariants(fr, friendRepl);
+        }
+    }
 
-        for (jint i = 0; i < sz; ++i) {
-            if (env->PushLocalFrame(16) != 0) break;
-            jobject chatLine = env->CallObjectMethod(listObj, s_mListGet, i);
-            if (!chatLine || env->ExceptionCheck()) { env->ExceptionClear(); env->PopLocalFrame(nullptr); continue; }
+    if (replacements.empty()) {
+        env->DeleteLocalRef(mc);
+        return;
+    }
 
-            if (!s_fLineString) {
-                jclass cCL = env->GetObjectClass(chatLine);
-                if (cCL) {
-                    const char* lsNames[] = { "lineString", "field_74541_b", "b", "a" };
-                    for (const char* lsn : lsNames) {
-                        s_fLineString = env->GetFieldID(cCL, lsn, "Lnet/minecraft/util/text/ITextComponent;");
-                        if (!s_fLineString) { env->ExceptionClear(); s_fLineString = env->GetFieldID(cCL, lsn, "Lhh;"); }
-                        if (s_fLineString) break;
+    // Сортируем замены по убыванию длины, чтобы длинные подстроки заменялись первыми
+    std::sort(replacements.begin(), replacements.end(), [](const auto& a, const auto& b) {
+        return a.first.length() > b.first.length();
+    });
+
+    // ── 1. Санитизация чата (GuiNewChat) ────────────────────────────────────
+    if (s_fIngameGUI) {
+        jobject ig = env->GetObjectField(mc, s_fIngameGUI);
+        if (ig && !env->ExceptionCheck()) {
+            if (!s_fPersistantChat) {
+                jclass cIG = env->GetObjectClass(ig);
+                if (cIG) {
+                    const char* pcNames[] = { "persistantChatGUI", "field_73840_e", "l", "k", "m", "s" };
+                    for (const char* pcn : pcNames) {
+                        s_fPersistantChat = env->GetFieldID(cIG, pcn, "Lnet/minecraft/client/gui/GuiNewChat;");
+                        if (!s_fPersistantChat) { env->ExceptionClear(); s_fPersistantChat = env->GetFieldID(cIG, pcn, "Lbvu;"); }
+                        if (!s_fPersistantChat) { env->ExceptionClear(); s_fPersistantChat = env->GetFieldID(cIG, pcn, "Lbit;"); }
+                        if (s_fPersistantChat) break;
                         env->ExceptionClear();
                     }
-                    env->DeleteLocalRef(cCL);
+                    env->DeleteLocalRef(cIG);
                 }
             }
 
-            if (s_fLineString) {
-                jobject textComp = env->GetObjectField(chatLine, s_fLineString);
-                if (textComp && !env->ExceptionCheck()) {
-                    if (!s_cTextCompStr || !s_mInitTextCompStr) {
-                        jclass cCompClass = env->GetObjectClass(textComp);
-                        if (cCompClass) {
-                            jmethodID mInit = env->GetMethodID(cCompClass, "<init>", "(Ljava/lang/String;)V");
-                            if (mInit) {
-                                s_cTextCompStr = reinterpret_cast<jclass>(env->NewGlobalRef(cCompClass));
-                                s_mInitTextCompStr = mInit;
+            if (s_fPersistantChat) {
+                jobject chatGUI = env->GetObjectField(ig, s_fPersistantChat);
+                if (chatGUI && !env->ExceptionCheck()) {
+                    if (!s_fDrawnChatLines || !s_fChatLines) {
+                        jclass cChatGUI = env->GetObjectClass(chatGUI);
+                        if (cChatGUI) {
+                            const char* drawnNames[] = { "drawnChatLines", "field_146247_f", "h", "g", "f" };
+                            for (const char* dn : drawnNames) {
+                                s_fDrawnChatLines = env->GetFieldID(cChatGUI, dn, "Ljava/util/List;");
+                                if (s_fDrawnChatLines) break;
+                                env->ExceptionClear();
                             }
-                            env->DeleteLocalRef(cCompClass);
+                            const char* chatNames[] = { "chatLines", "field_146246_g", "g", "h", "f" };
+                            for (const char* cn : chatNames) {
+                                jfieldID f = env->GetFieldID(cChatGUI, cn, "Ljava/util/List;");
+                                if (f && f != s_fDrawnChatLines) { s_fChatLines = f; break; }
+                                env->ExceptionClear();
+                            }
+                            env->DeleteLocalRef(cChatGUI);
                         }
                     }
 
-                    if (!s_mGetFormatted) {
-                        jclass cComp = env->GetObjectClass(textComp);
-                        if (cComp) {
-                            s_mGetFormatted = env->GetMethodID(cComp, "d", "()Ljava/lang/String;");
-                            if (!s_mGetFormatted) { env->ExceptionClear(); s_mGetFormatted = env->GetMethodID(cComp, "getFormattedText", "()Ljava/lang/String;"); }
-                            if (!s_mGetFormatted) { env->ExceptionClear(); s_mGetFormatted = env->GetMethodID(cComp, "func_150254_d", "()Ljava/lang/String;"); }
-                            if (!s_mGetFormatted) { env->ExceptionClear(); s_mGetFormatted = env->GetMethodID(cComp, "c", "()Ljava/lang/String;"); }
-                            if (!s_mGetFormatted) { env->ExceptionClear(); s_mGetFormatted = env->GetMethodID(cComp, "getUnformattedText", "()Ljava/lang/String;"); }
-                            env->DeleteLocalRef(cComp);
-                        }
-                    }
+                    auto SanitizeList = [&](jfieldID fList) {
+                        if (!fList || !s_mListSize || !s_mListGet) return;
+                        jobject listObj = env->GetObjectField(chatGUI, fList);
+                        if (!listObj || env->ExceptionCheck()) { env->ExceptionClear(); return; }
 
-                    if (s_mGetFormatted && s_cTextCompStr && s_mInitTextCompStr) {
-                        jstring jStr = reinterpret_cast<jstring>(env->CallObjectMethod(textComp, s_mGetFormatted));
-                        if (jStr && !env->ExceptionCheck()) {
-                            const char* cChars = env->GetStringUTFChars(jStr, nullptr);
-                            if (cChars) {
-                                std::string s(cChars);
-                                env->ReleaseStringUTFChars(jStr, cChars);
+                        jint sz = env->CallIntMethod(listObj, s_mListSize);
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); sz = 0; }
+                        if (sz > 100) sz = 100;
 
-                                bool modified = false;
-                                for (const auto& tName : searchTargets) {
-                                    size_t pos = s.find(tName);
-                                    if (pos != std::string::npos) {
-                                        while (pos != std::string::npos) {
-                                            s.replace(pos, tName.length(), replacement);
-                                            pos = s.find(tName, pos + replacement.length());
-                                        }
-                                        modified = true;
+                        for (jint i = 0; i < sz; ++i) {
+                            if (env->PushLocalFrame(16) != 0) break;
+                            jobject chatLine = env->CallObjectMethod(listObj, s_mListGet, i);
+                            if (!chatLine || env->ExceptionCheck()) { env->ExceptionClear(); env->PopLocalFrame(nullptr); continue; }
+
+                            if (!s_fLineString) {
+                                jclass cCL = env->GetObjectClass(chatLine);
+                                if (cCL) {
+                                    const char* lsNames[] = { "lineString", "field_74541_b", "b", "a" };
+                                    for (const char* lsn : lsNames) {
+                                        s_fLineString = env->GetFieldID(cCL, lsn, "Lnet/minecraft/util/text/ITextComponent;");
+                                        if (!s_fLineString) { env->ExceptionClear(); s_fLineString = env->GetFieldID(cCL, lsn, "Lhh;"); }
+                                        if (s_fLineString) break;
+                                        env->ExceptionClear();
                                     }
+                                    env->DeleteLocalRef(cCL);
                                 }
+                            }
 
-                                if (modified) {
-                                    jstring newJStr = env->NewStringUTF(s.c_str());
-                                    if (newJStr) {
-                                        jobject newComp = env->NewObject(s_cTextCompStr, s_mInitTextCompStr, newJStr);
-                                        if (newComp && !env->ExceptionCheck()) {
-                                            env->SetObjectField(chatLine, s_fLineString, newComp);
-                                            env->DeleteLocalRef(newComp);
+                            if (s_fLineString) {
+                                jobject textComp = env->GetObjectField(chatLine, s_fLineString);
+                                if (textComp && !env->ExceptionCheck()) {
+                                    if (!s_mGetFormatted) {
+                                        jclass cComp = env->GetObjectClass(textComp);
+                                        if (cComp) {
+                                            s_mGetFormatted = env->GetMethodID(cComp, "d", "()Ljava/lang/String;");
+                                            if (!s_mGetFormatted) { env->ExceptionClear(); s_mGetFormatted = env->GetMethodID(cComp, "getFormattedText", "()Ljava/lang/String;"); }
+                                            if (!s_mGetFormatted) { env->ExceptionClear(); s_mGetFormatted = env->GetMethodID(cComp, "func_150254_d", "()Ljava/lang/String;"); }
+                                            if (!s_mGetFormatted) { env->ExceptionClear(); s_mGetFormatted = env->GetMethodID(cComp, "c", "()Ljava/lang/String;"); }
+                                            if (!s_mGetFormatted) { env->ExceptionClear(); s_mGetFormatted = env->GetMethodID(cComp, "getUnformattedText", "()Ljava/lang/String;"); }
+                                            env->DeleteLocalRef(cComp);
+                                        }
+                                    }
+
+                                    if (s_mGetFormatted && s_cTextCompStr && s_mInitTextCompStr) {
+                                        jstring jStr = reinterpret_cast<jstring>(env->CallObjectMethod(textComp, s_mGetFormatted));
+                                        if (jStr && !env->ExceptionCheck()) {
+                                            const char* cChars = env->GetStringUTFChars(jStr, nullptr);
+                                            if (cChars) {
+                                                std::string s(cChars);
+                                                env->ReleaseStringUTFChars(jStr, cChars);
+
+                                                bool modified = false;
+                                                for (const auto& rep : replacements) {
+                                                    size_t pos = s.find(rep.first);
+                                                    if (pos != std::string::npos) {
+                                                        while (pos != std::string::npos) {
+                                                            s.replace(pos, rep.first.length(), rep.second);
+                                                            pos = s.find(rep.first, pos + rep.second.length());
+                                                        }
+                                                        modified = true;
+                                                    }
+                                                }
+
+                                                if (modified) {
+                                                    jstring newJStr = env->NewStringUTF(s.c_str());
+                                                    if (newJStr) {
+                                                        jobject newComp = env->NewObject(s_cTextCompStr, s_mInitTextCompStr, newJStr);
+                                                        if (newComp && !env->ExceptionCheck()) {
+                                                            env->SetObjectField(chatLine, s_fLineString, newComp);
+                                                            env->DeleteLocalRef(newComp);
+                                                        } else {
+                                                            env->ExceptionClear();
+                                                        }
+                                                        env->DeleteLocalRef(newJStr);
+                                                    }
+                                                }
+                                            }
                                         } else {
                                             env->ExceptionClear();
                                         }
-                                        env->DeleteLocalRef(newJStr);
                                     }
+                                } else {
+                                    env->ExceptionClear();
                                 }
                             }
-                        } else {
-                            env->ExceptionClear();
+                            env->PopLocalFrame(nullptr);
                         }
-                    }
-                } else {
-                    env->ExceptionClear();
-                }
+                        env->DeleteLocalRef(listObj);
+                    };
+
+                    SanitizeList(s_fDrawnChatLines);
+                    SanitizeList(s_fChatLines);
+                    env->DeleteLocalRef(chatGUI);
+                } else env->ExceptionClear();
             }
-            env->PopLocalFrame(nullptr);
+            env->DeleteLocalRef(ig);
+        } else env->ExceptionClear();
+    }
+
+    // ── 2. Санитизация таба (NetworkPlayerInfo в NetHandlerPlayClient) ───────
+    static jfieldID s_fNPIDisplayName = nullptr;
+    jclass cMC = env->GetObjectClass(mc);
+    jobject conn = nullptr;
+    jmethodID mGetConn = env->GetMethodID(cMC, "v", "()Lbrz;");
+    if (!mGetConn) { env->ExceptionClear(); mGetConn = env->GetMethodID(cMC, "getConnection", "()Lnet/minecraft/client/network/NetHandlerPlayClient;"); }
+    if (!mGetConn) { env->ExceptionClear(); mGetConn = env->GetMethodID(cMC, "func_147114_u", "()Lnet/minecraft/client/network/NetHandlerPlayClient;"); }
+    if (mGetConn) {
+        conn = env->CallObjectMethod(mc, mGetConn);
+        if (env->ExceptionCheck()) { env->ExceptionClear(); conn = nullptr; }
+    }
+    env->DeleteLocalRef(cMC);
+
+    if (conn) {
+        jclass cNH = env->GetObjectClass(conn);
+        jobject vals = nullptr;
+        jmethodID mGetPlayerInfoMap = env->GetMethodID(cNH, "d", "()Ljava/util/Collection;");
+        if (!mGetPlayerInfoMap) { env->ExceptionClear(); mGetPlayerInfoMap = env->GetMethodID(cNH, "getPlayerInfoMap", "()Ljava/util/Collection;"); }
+        if (!mGetPlayerInfoMap) { env->ExceptionClear(); mGetPlayerInfoMap = env->GetMethodID(cNH, "func_175106_d", "()Ljava/util/Collection;"); }
+        if (mGetPlayerInfoMap) {
+            vals = env->CallObjectMethod(conn, mGetPlayerInfoMap);
+            if (env->ExceptionCheck()) { env->ExceptionClear(); vals = nullptr; }
         }
-        env->DeleteLocalRef(listObj);
-    };
 
-    SanitizeList(s_fDrawnChatLines);
-    SanitizeList(s_fChatLines);
+        if (!vals) {
+            const char* mapFields[] = { "i", "playerInfoMap", "field_175104_f", "f", "e" };
+            for (const char* mf : mapFields) {
+                jfieldID fMap = env->GetFieldID(cNH, mf, "Ljava/util/Map;");
+                if (fMap) {
+                    jobject map = env->GetObjectField(conn, fMap);
+                    if (map && !env->ExceptionCheck()) {
+                        jclass cMap = env->GetObjectClass(map);
+                        jmethodID mValues = env->GetMethodID(cMap, "values", "()Ljava/util/Collection;");
+                        if (mValues) {
+                            vals = env->CallObjectMethod(map, mValues);
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); vals = nullptr; }
+                        }
+                        env->DeleteLocalRef(cMap);
+                        env->DeleteLocalRef(map);
+                    } else env->ExceptionClear();
+                    break;
+                }
+                env->ExceptionClear();
+            }
+        }
 
-    env->DeleteLocalRef(chatGUI);
+        if (vals && s_cTextCompStr && s_mInitTextCompStr) {
+            jclass cColl = env->GetObjectClass(vals);
+            jmethodID mIter = env->GetMethodID(cColl, "iterator", "()Ljava/util/Iterator;");
+            env->DeleteLocalRef(cColl);
+
+            if (mIter) {
+                jobject iter = env->CallObjectMethod(vals, mIter);
+                if (iter && !env->ExceptionCheck()) {
+                    jclass cIter = env->GetObjectClass(iter);
+                    jmethodID mHasNext = env->GetMethodID(cIter, "hasNext", "()Z");
+                    jmethodID mNext = env->GetMethodID(cIter, "next", "()Ljava/lang/Object;");
+
+                    int count = 0;
+                    while (mHasNext && mNext && env->CallBooleanMethod(iter, mHasNext) && count < 500) {
+                        ++count;
+                        if (env->PushLocalFrame(16) != 0) break;
+                        jobject npi = env->CallObjectMethod(iter, mNext);
+                        if (!npi || env->ExceptionCheck()) { env->ExceptionClear(); env->PopLocalFrame(nullptr); break; }
+
+                        jclass cNPI = env->GetObjectClass(npi);
+
+                        // Ищем поле displayName (bsc.l / displayName / field_178872_h)
+                        if (!s_fNPIDisplayName) {
+                            const char* dnFields[] = { "l", "displayName", "field_178872_h", "h", "k" };
+                            for (const char* dnf : dnFields) {
+                                s_fNPIDisplayName = env->GetFieldID(cNPI, dnf, "Lnet/minecraft/util/text/ITextComponent;");
+                                if (!s_fNPIDisplayName) { env->ExceptionClear(); s_fNPIDisplayName = env->GetFieldID(cNPI, dnf, "Lhh;"); }
+                                if (s_fNPIDisplayName) break;
+                                env->ExceptionClear();
+                            }
+                        }
+
+                        // Имя игрока из GameProfile
+                        std::string pName = "";
+                        jmethodID mProfile = env->GetMethodID(cNPI, "a", "()Lcom/mojang/authlib/GameProfile;");
+                        if (!mProfile) { env->ExceptionClear(); mProfile = env->GetMethodID(cNPI, "getGameProfile", "()Lcom/mojang/authlib/GameProfile;"); }
+                        if (mProfile) {
+                            jobject prof = env->CallObjectMethod(npi, mProfile);
+                            if (prof && !env->ExceptionCheck()) {
+                                jclass cProf = env->GetObjectClass(prof);
+                                jmethodID mGetName = env->GetMethodID(cProf, "getName", "()Ljava/lang/String;");
+                                if (mGetName) {
+                                    auto jName = reinterpret_cast<jstring>(env->CallObjectMethod(prof, mGetName));
+                                    if (jName && !env->ExceptionCheck()) {
+                                        const char* chars = env->GetStringUTFChars(jName, nullptr);
+                                        if (chars) { pName = chars; env->ReleaseStringUTFChars(jName, chars); }
+                                        env->DeleteLocalRef(jName);
+                                    } else env->ExceptionClear();
+                                }
+                                env->DeleteLocalRef(cProf);
+                                env->DeleteLocalRef(prof);
+                            } else env->ExceptionClear();
+                        }
+
+                        // Проверяем текущий displayName или берем GameProfile name
+                        std::string currentDispText = "";
+                        jobject comp = s_fNPIDisplayName ? env->GetObjectField(npi, s_fNPIDisplayName) : nullptr;
+                        if (comp && !env->ExceptionCheck()) {
+                            jclass cComp = env->GetObjectClass(comp);
+                            jmethodID mGetText = env->GetMethodID(cComp, "d", "()Ljava/lang/String;");
+                            if (!mGetText) { env->ExceptionClear(); mGetText = env->GetMethodID(cComp, "getFormattedText", "()Ljava/lang/String;"); }
+                            if (mGetText) {
+                                auto jText = reinterpret_cast<jstring>(env->CallObjectMethod(comp, mGetText));
+                                if (jText && !env->ExceptionCheck()) {
+                                    const char* rawDisp = env->GetStringUTFChars(jText, nullptr);
+                                    if (rawDisp) {
+                                        currentDispText = rawDisp;
+                                        env->ReleaseStringUTFChars(jText, rawDisp);
+                                    }
+                                    env->DeleteLocalRef(jText);
+                                } else env->ExceptionClear();
+                            }
+                            env->DeleteLocalRef(cComp);
+                        } else env->ExceptionClear();
+
+                        std::string textToInspect = currentDispText.empty() ? pName : currentDispText;
+                        if (!textToInspect.empty()) {
+                            bool tabModified = false;
+                            for (const auto& rep : replacements) {
+                                size_t pos = textToInspect.find(rep.first);
+                                if (pos != std::string::npos) {
+                                    while (pos != std::string::npos) {
+                                        textToInspect.replace(pos, rep.first.length(), rep.second);
+                                        pos = textToInspect.find(rep.first, pos + rep.second.length());
+                                    }
+                                    tabModified = true;
+                                }
+                            }
+
+                            if (tabModified && s_fNPIDisplayName) {
+                                jstring newJStr = env->NewStringUTF(textToInspect.c_str());
+                                if (newJStr) {
+                                    jobject newComp = env->NewObject(s_cTextCompStr, s_mInitTextCompStr, newJStr);
+                                    if (newComp && !env->ExceptionCheck()) {
+                                        env->SetObjectField(npi, s_fNPIDisplayName, newComp);
+                                        env->DeleteLocalRef(newComp);
+                                    } else env->ExceptionClear();
+                                    env->DeleteLocalRef(newJStr);
+                                }
+                            }
+                        }
+
+                        if (comp) env->DeleteLocalRef(comp);
+                        env->DeleteLocalRef(cNPI);
+                        env->DeleteLocalRef(npi);
+                        env->PopLocalFrame(nullptr);
+                    }
+                    env->DeleteLocalRef(cIter);
+                    env->DeleteLocalRef(iter);
+                } else env->ExceptionClear();
+            }
+            env->DeleteLocalRef(vals);
+        }
+        env->DeleteLocalRef(cNH);
+        env->DeleteLocalRef(conn);
+    }
+
+    env->DeleteLocalRef(mc);
+}
+
+// ── Очистка собственного никнейма в истории чата (NameProtect) ───────────────
+void JVMBridge::SanitizeChat(const std::string& targetName, const std::string& replacement) {
+    std::vector<std::string> dummy;
+    SanitizeNameProtect(targetName, replacement, dummy, false);
 }

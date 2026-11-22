@@ -3703,30 +3703,8 @@ void JVMBridge::UpdateRenderMatrices(JNIEnv* env) {
             if (env->ExceptionCheck()) { env->ExceptionClear(); rmObj = nullptr; }
         }
 
-        if (rmObj) {
-            if (s_fRM_viewerPosX && s_fRM_viewerPosY && s_fRM_viewerPosZ) {
-                double rx = env->GetDoubleField(rmObj, s_fRM_viewerPosX);
-                double ry = env->GetDoubleField(rmObj, s_fRM_viewerPosY);
-                double rz = env->GetDoubleField(rmObj, s_fRM_viewerPosZ);
-                if (rx != 0.0 || ry != 0.0 || rz != 0.0) {
-                    rmViewerPosY = ry;
-                    m_data.camPos.x = rx;
-                    m_data.camPos.y = ry; // Матрица OpenGL MODELVIEW в 1.12.2 уже содержит смещение камеры по высоте глаз
-                    m_data.camPos.z = rz;
-                    m_camPos = m_data.camPos;
-                    if (s_fRM_playerViewX && s_fRM_playerViewY) {
-                        // В RenderManager 1.12.2: playerViewY = rotationYaw, playerViewX = rotationPitch!
-                        m_data.camYaw   = env->GetFloatField(rmObj, s_fRM_playerViewY);
-                        m_data.camPitch = env->GetFloatField(rmObj, s_fRM_playerViewX);
-                    }
-                    gotCam = true;
-                }
-            }
-            env->DeleteLocalRef(rmObj);
-        }
-
-        // Fallback №2: читаем ActiveRenderInfo.position (bhv.e) если RenderManager вернул нули
-        if (!gotCam && s_cBHV) {
+        // Приоритет №1: читаем точную субпиксельную позицию камеры из ActiveRenderInfo.position (bhv.e)
+        if (s_cBHV) {
             static jfieldID s_fBHV_e = env->GetStaticFieldID(s_cBHV, "e", "Lbhe;");
             if (!s_fBHV_e) { env->ExceptionClear(); s_fBHV_e = env->GetStaticFieldID(s_cBHV, "position", "Lnet/minecraft/util/math/Vec3d;"); }
             if (!s_fBHV_e) { env->ExceptionClear(); s_fBHV_e = env->GetStaticFieldID(s_cBHV, "field_178811_e", "Lnet/minecraft/util/math/Vec3d;"); }
@@ -3756,6 +3734,30 @@ void JVMBridge::UpdateRenderMatrices(JNIEnv* env) {
                     env->DeleteLocalRef(vecObj);
                 } else env->ExceptionClear();
             }
+        }
+
+        if (rmObj) {
+            if (s_fRM_viewerPosX && s_fRM_viewerPosY && s_fRM_viewerPosZ) {
+                double rx = env->GetDoubleField(rmObj, s_fRM_viewerPosX);
+                double ry = env->GetDoubleField(rmObj, s_fRM_viewerPosY);
+                double rz = env->GetDoubleField(rmObj, s_fRM_viewerPosZ);
+                if (rx != 0.0 || ry != 0.0 || rz != 0.0) {
+                    rmViewerPosY = ry;
+                    if (!gotCam) {
+                        m_data.camPos.x = rx;
+                        m_data.camPos.y = ry + s_lastEyeHeight; // viewerPosY в RenderManager — уровень ног; добавляем высоту глаз
+                        m_data.camPos.z = rz;
+                        m_camPos = m_data.camPos;
+                        gotCam = true;
+                    }
+                    if (s_fRM_playerViewX && s_fRM_playerViewY) {
+                        // В RenderManager 1.12.2: playerViewY = rotationYaw, playerViewX = rotationPitch!
+                        m_data.camYaw   = env->GetFloatField(rmObj, s_fRM_playerViewY);
+                        m_data.camPitch = env->GetFloatField(rmObj, s_fRM_playerViewX);
+                    }
+                }
+            }
+            env->DeleteLocalRef(rmObj);
         }
 
         // Fallback №3: localPlayer + Timer
@@ -3874,9 +3876,6 @@ void JVMBridge::UpdateRenderMatrices(JNIEnv* env) {
                             m_data.camYaw   = prevY + (curY - prevY) * pt;
                             m_data.camPitch = prevP + (curP - prevP) * pt;
                         }
-                    } else if (rmViewerPosY != 0.0) {
-                        m_data.camPos.y = rmViewerPosY; // Позиция RenderManager (без двойного добавления высоты глаз)
-                        m_camPos = m_data.camPos;
                     }
                 }
                 env->DeleteLocalRef(cEntity);
@@ -4039,28 +4038,29 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
         double clipY = eyeX * P[1] + eyeY * P[5] + eyeZ * P[9]  + eyeW * P[13];
         double clipW = eyeX * P[3] + eyeY * P[7] + eyeZ * P[11] + eyeW * P[15];
 
-        if (clipW > 0.01) {
-            double ndcX = clipX / clipW;
-            double ndcY = clipY / clipW;
+        // Точка позади камеры или ближе ближней плоскости отсечения
+        if (clipW <= 0.05) return false;
 
-            if (fabs(ndcX) <= 10.0 && fabs(ndcY) <= 10.0) {
-                const double vpX = m_viewport[0];
-                const double vpY = m_viewport[1];
-                const double vpW = m_viewport[2] > 0 ? m_viewport[2] : disp.x;
-                const double vpH = m_viewport[3] > 0 ? m_viewport[3] : disp.y;
-                double screenX = vpX + (ndcX + 1.0) * vpW * 0.5;
-                double screenY = disp.y - (vpY + (ndcY + 1.0) * vpH * 0.5);
+        double ndcX = clipX / clipW;
+        double ndcY = clipY / clipW;
 
-                screenOut.x = static_cast<float>(screenX);
-                screenOut.y = static_cast<float>(screenY);
-                return true;
-            }
+        // Отсекаем точки далеко за пределами экрана
+        if (fabs(ndcX) <= 2.0 && fabs(ndcY) <= 2.0) {
+            const double vpX = m_viewport[0];
+            const double vpY = m_viewport[1];
+            const double vpW = m_viewport[2] > 0 ? m_viewport[2] : disp.x;
+            const double vpH = m_viewport[3] > 0 ? m_viewport[3] : disp.y;
+            double screenX = vpX + (ndcX + 1.0) * vpW * 0.5;
+            double screenY = disp.y - (vpY + (ndcY + 1.0) * vpH * 0.5);
+
+            screenOut.x = static_cast<float>(screenX);
+            screenOut.y = static_cast<float>(screenY);
+            return true;
         }
-        // Матрицы могут относиться к соседнему кадру. Ниже пробуем расчёт
-        // по текущим углам камеры, чтобы короткий рассинхрон не гасил NameTags.
+        return false;
     }
 
-    // Способ 2 (Fallback): Тригонометрический расчет по углам Эйлера
+    // Способ 2 (Fallback): Тригонометрический расчет по углам Эйлера (только если матриц еще нет)
     constexpr double kPI = 3.14159265358979323846;
     double yawRad   = m_data.camYaw * (kPI / 180.0);
     double pitchRad = m_data.camPitch * (kPI / 180.0);
@@ -4094,7 +4094,7 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
     double yCam = dx * ux + dy * uy + dz * uz;
     double zCam = dx * fx + dy * fy + dz * fz;
 
-    if (zCam <= 0.05) return false;
+    if (zCam <= 0.1) return false;
 
     double fovY_Rad = (m_data.fov > 10.0f ? m_data.fov : 70.0f) * (kPI / 180.0);
     double tanHalfY = tan(fovY_Rad * 0.5);
@@ -4106,7 +4106,7 @@ bool JVMBridge::WorldToScreen(const Vec3& worldPos, Vec2& screenOut) const {
     double xNorm = xCam / (zCam * tanHalfX);
     double yNorm = yCam / (zCam * tanHalfY);
 
-    if (fabs(xNorm) <= 10.0 && fabs(yNorm) <= 10.0) {
+    if (fabs(xNorm) <= 2.0 && fabs(yNorm) <= 2.0) {
         double centerX = disp.x * 0.5;
         double centerY = disp.y * 0.5;
         double screenX = centerX + xNorm * centerX;

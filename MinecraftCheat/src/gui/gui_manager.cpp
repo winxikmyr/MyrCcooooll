@@ -683,11 +683,19 @@ void GUIManager::Render(HDC hdc) {
             Vec2 sc[8];
             bool sc_ok[8];
             int visibleCount = 0;
+            bool anyInView = false;
+            ImVec2 dispSize = ImGui::GetIO().DisplaySize;
             for (int i = 0; i < 8; ++i) {
                 sc_ok[i] = JVMBridge::Get().WorldToScreen(c[i], sc[i]);
-                if (sc_ok[i]) visibleCount++;
+                if (sc_ok[i]) {
+                    visibleCount++;
+                    if (sc[i].x >= -50.0f && sc[i].x <= dispSize.x + 50.0f &&
+                        sc[i].y >= -50.0f && sc[i].y <= dispSize.y + 50.0f) {
+                        anyInView = true;
+                    }
+                }
             }
-            if (visibleCount >= 2) {
+            if (visibleCount >= 2 && anyInView) {
                 if (chams && visibleCount >= 4) {
                     ImU32 fillAlpha = static_cast<ImU32>(std::max(0.05f, std::min(1.0f, opacity * 0.35f)) * 255.0f);
                     ImU32 fillCol = (col & 0x00FFFFFF) | (fillAlpha << 24);
@@ -826,43 +834,52 @@ void GUIManager::Render(HDC hdc) {
                     Vec2 sc[8];
                     bool sc_ok[8];
                     int visCount = 0;
-                    float sumX = 0.0f, sumY = 0.0f;
+                    bool anyInView = false;
+                    ImVec2 dispSize = ImGui::GetIO().DisplaySize;
                     for (int i = 0; i < 8; ++i) {
                         sc_ok[i] = JVMBridge::Get().WorldToScreen(c[i], sc[i]);
                         if (sc_ok[i]) {
                             visCount++;
-                            sumX += sc[i].x;
-                            sumY += sc[i].y;
+                            if (sc[i].x >= -50.0f && sc[i].x <= dispSize.x + 50.0f &&
+                                sc[i].y >= -50.0f && sc[i].y <= dispSize.y + 50.0f) {
+                                anyInView = true;
+                            }
                         }
                     }
+
+                    // Если блок находится за камерой или вне видимой области — не рендерим его контур
+                    if (!anyInView || visCount < 2) continue;
 
                     int rI = (int)(blk.red * 255.0);
                     int gI = (int)(blk.green * 255.0);
                     int bI = (int)(blk.blue * 255.0);
                     ImU32 col = IM_COL32(rI, gI, bI, 240);
 
-                    // Рендерим контур куба, если хотя бы одна вершина спроецирована на экран
-                    if (visCount >= 1) {
-                        auto DrawEdge = [&](int i1, int i2) {
-                            if (sc_ok[i1] && sc_ok[i2]) {
-                                draw->AddLine(ImVec2(sc[i1].x, sc[i1].y), ImVec2(sc[i2].x, sc[i2].y), col, 1.5f);
-                            }
-                        };
-                        // 1-в-1 как в blockEspFrame из BlockESP.java: аккуратный 3D каркас куба
-                        // Нижний контур
-                        DrawEdge(0, 1); DrawEdge(1, 2); DrawEdge(2, 3); DrawEdge(3, 0);
-                        // Верхний контур
-                        DrawEdge(4, 5); DrawEdge(5, 6); DrawEdge(6, 7); DrawEdge(7, 4);
-                        // Вертикальные стойки
-                        DrawEdge(0, 4); DrawEdge(1, 5); DrawEdge(2, 6); DrawEdge(3, 7);
-
-                        // Трейсеры от прицела к рудам (Traicer в настройках BlockESP)
-                        if (be->tracers && visCount > 0) {
-                            draw->AddLine(crosshair, ImVec2(sumX / visCount, sumY / visCount), col, 1.2f);
+                    auto DrawEdge = [&](int i1, int i2) {
+                        if (sc_ok[i1] && sc_ok[i2]) {
+                            draw->AddLine(ImVec2(sc[i1].x, sc[i1].y), ImVec2(sc[i2].x, sc[i2].y), col, 1.5f);
                         }
+                    };
+                    // 1-в-1 как в blockEspFrame из BlockESP.java: аккуратный 3D каркас куба
+                    // Нижний контур
+                    DrawEdge(0, 1); DrawEdge(1, 2); DrawEdge(2, 3); DrawEdge(3, 0);
+                    // Верхний контур
+                    DrawEdge(4, 5); DrawEdge(5, 6); DrawEdge(6, 7); DrawEdge(7, 4);
+                    // Вертикальные стойки
+                    DrawEdge(0, 4); DrawEdge(1, 5); DrawEdge(2, 6); DrawEdge(3, 7);
 
-                        renderedCount++;
+                    // Трейсеры от прицела строго к центру блока на экране (Traicer в настройках BlockESP)
+                    if (be->tracers) {
+                        Vec2 centerSc;
+                        if (JVMBridge::Get().WorldToScreen({ cx, cy, cz }, centerSc)) {
+                            if (centerSc.x >= -30.0f && centerSc.x <= dispSize.x + 30.0f &&
+                                centerSc.y >= -30.0f && centerSc.y <= dispSize.y + 30.0f) {
+                                draw->AddLine(crosshair, ImVec2(centerSc.x, centerSc.y), col, 1.2f);
+                            }
+                        }
                     }
+
+                    renderedCount++;
                 }
             };
 

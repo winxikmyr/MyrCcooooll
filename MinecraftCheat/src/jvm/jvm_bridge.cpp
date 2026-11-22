@@ -3172,39 +3172,26 @@ static void ParseItemStackHelper(JNIEnv* env, jobject mc, jobject itemStack, Arm
         }
 
         // ── ОПРЕДЕЛЕНИЕ ИКОНКИ: РЕСУРС-ПАК ИЛИ ВАНИЛЛА ─────────────────────────────
-        // 1. Live модель рендера Minecraft (QueryItemSpriteUV) - ПЕРВИЧНЫЙ источник!
-        // В Minecraft (включая OptiFine CIT и любые текстур-паки) RenderItem возвращает:
-        // - Модель и текстуру из РП (если применен ресурс-пак)
-        // - Модель и текстуру ваниллы (если ресурс-пак выключен или не заменяет этот предмет)
         bool iconResolved = false;
         float rU1 = 0.f, rU2 = 0.f, rV1 = 0.f, rV2 = 0.f;
 
-        // Серверы Rust часто передают кастомный предмет как обычную ванильную
-        // основу (например diamond_pickaxe) с CustomID. В таком случае UV
-        // модели указывает на основу, а не на иконку ресурспака.
-        const bool isServerCustomItem = CUSTOM_ITEM_IDS.find(out.itemId) != CUSTOM_ITEM_IDS.end();
-        if (isServerCustomItem && QueryResourcePackSprite(env, mc, out.itemId, out.name, rU1, rU2, rV1, rV2)) {
+        // 1. ПРИОРИТЕТ: Поиск 2D иконки в серверном ресурс-паке!
+        // На серверах с кастомными ресурс-паками (Rust и др.) оружие и кастомные предметы часто
+        // имеют 3D-модели блоков/партиклов в RenderItem (vanillaOk), из-за чего иконка получается битой/темной.
+        // Поэтому для ВСЕХ предметов и оружия сначала опрашиваем TextureMap ресурс-пака:
+        if (QueryResourcePackSprite(env, mc, out.itemId, out.name, rU1, rU2, rV1, rV2)) {
             out.minU = rU1; out.maxU = rU2;
             out.minV = rV1; out.maxV = rV2;
             out.hasIcon = true;
             iconResolved = true;
         }
 
+        // 2. Модель рендера Minecraft (QueryItemSpriteUV) - используется если ресурс-пак не вернул кастомную иконку
         if (!iconResolved && vanillaOk && (vanillaMaxU > vanillaMinU) && (vanillaMaxV > vanillaMinV) && spLower != "missingno") {
             out.minU = vanillaMinU; out.maxU = vanillaMaxU;
             out.minV = vanillaMinV; out.maxV = vanillaMaxV;
             out.hasIcon = true;
             iconResolved = true;
-        }
-
-        // 2. Фоллбэк: поиск кастомной текстуры в ресурс-паке по имени
-        if (!iconResolved) {
-            if (QueryResourcePackSprite(env, mc, out.itemId, out.name, rU1, rU2, rV1, rV2)) {
-                out.minU = rU1; out.maxU = rU2;
-                out.minV = rV1; out.maxV = rV2;
-                out.hasIcon = true;
-                iconResolved = true;
-            }
         }
 
         // 3. Фоллбэк: ищем в атласе по имени ванильного предмета или itemId (картофель, хлеб, броня, инструменты и т.д.)
@@ -5245,8 +5232,8 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                     } else env->ExceptionClear();
                 }
 
-                // 3. Броня и экипировка игрока (100% надежный способ через EntityEquipmentSlot b(vl))
-                bool armorParsed = false;
+                // 3. Броня и экипировка игрока (послотовый опрос 1-в-1 как в QueryPlayerEquipment)
+                // Слот 0: HEAD, 1: CHEST, 2: LEGS, 3: FEET
                 jclass cSlot = FindMCClass(env, cl, "vl");
                 if (!cSlot) cSlot = FindMCClass(env, cl, "net/minecraft/inventory/EntityEquipmentSlot");
 
@@ -5257,12 +5244,12 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
 
                     if (mGetSlot) {
                         jfieldID fSlots[4] = {
-                            env->GetStaticFieldID(cSlot, "c", "Lvl;"), // 0: FEET (boots)
-                            env->GetStaticFieldID(cSlot, "d", "Lvl;"), // 1: LEGS (leggings)
-                            env->GetStaticFieldID(cSlot, "e", "Lvl;"), // 2: CHEST (chestplate)
-                            env->GetStaticFieldID(cSlot, "f", "Lvl;")  // 3: HEAD (helmet)
+                            env->GetStaticFieldID(cSlot, "f", "Lvl;"), // 0: HEAD (helmet) -> slot 0
+                            env->GetStaticFieldID(cSlot, "e", "Lvl;"), // 1: CHEST (chestplate) -> slot 1
+                            env->GetStaticFieldID(cSlot, "d", "Lvl;"), // 2: LEGS (leggings) -> slot 2
+                            env->GetStaticFieldID(cSlot, "c", "Lvl;")  // 3: FEET (boots) -> slot 3
                         };
-                        const char* slotNames[4] = { "FEET", "LEGS", "CHEST", "HEAD" };
+                        const char* slotNames[4] = { "HEAD", "CHEST", "LEGS", "FEET" };
                         for (int s = 0; s < 4; ++s) {
                             if (!fSlots[s]) {
                                 env->ExceptionClear();
@@ -5273,13 +5260,7 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                 if (slotEnum && !env->ExceptionCheck()) {
                                     jobject stack = env->CallObjectMethod(pObj, mGetSlot, slotEnum);
                                     if (stack && !env->ExceptionCheck()) {
-                                        ArmorItem arm;
-                                        ParseItemStackHelper(env, mc, stack, arm);
-                                        tag.armor[3 - s] = arm;
-                                        if (!arm.isEmpty) {
-                                            tag.items.push_back(arm);
-                                            armorParsed = true;
-                                        }
+                                        ParseItemStackHelper(env, mc, stack, tag.armor[s]);
                                         env->DeleteLocalRef(stack);
                                     } else env->ExceptionClear();
                                     env->DeleteLocalRef(slotEnum);
@@ -5296,10 +5277,7 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                 if (mainEnum && !env->ExceptionCheck()) {
                                     jobject mStack = env->CallObjectMethod(pObj, mGetSlot, mainEnum);
                                     if (mStack && !env->ExceptionCheck()) {
-                                        ArmorItem mh;
-                                        ParseItemStackHelper(env, mc, mStack, mh);
-                                        tag.heldItem = mh;
-                                        if (!mh.isEmpty) tag.items.push_back(mh);
+                                        ParseItemStackHelper(env, mc, mStack, tag.heldItem);
                                         env->DeleteLocalRef(mStack);
                                     } else env->ExceptionClear();
                                     env->DeleteLocalRef(mainEnum);
@@ -5310,49 +5288,57 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                     env->DeleteLocalRef(cSlot);
                 }
 
-                // Способ А: Вызов aP() (getArmorInventoryList / func_184193_aE)
-                if (!armorParsed) {
-                    jmethodID mArmorList = env->GetMethodID(cPlayer, "aP", "()Ljava/lang/Iterable;");
-                    if (!mArmorList) { env->ExceptionClear(); mArmorList = env->GetMethodID(cPlayer, "getArmorInventoryList", "()Ljava/lang/Iterable;"); }
-                    if (!mArmorList) { env->ExceptionClear(); mArmorList = env->GetMethodID(cPlayer, "func_184193_aE", "()Ljava/lang/Iterable;"); }
-                    if (mArmorList) {
-                        jobject aIter = env->CallObjectMethod(pObj, mArmorList);
-                        if (aIter && !env->ExceptionCheck()) {
-                            jclass cAIter = env->GetObjectClass(aIter);
-                            jmethodID mIterator = env->GetMethodID(cAIter, "iterator", "()Ljava/util/Iterator;");
-                            if (mIterator) {
-                                jobject itObj = env->CallObjectMethod(aIter, mIterator);
-                                if (itObj && !env->ExceptionCheck()) {
-                                    jclass cIt = env->GetObjectClass(itObj);
-                                    jmethodID mHasNext = env->GetMethodID(cIt, "hasNext", "()Z");
-                                    jmethodID mNext = env->GetMethodID(cIt, "next", "()Ljava/lang/Object;");
-                                    int slot = 0;
-                                    while (slot < 4 && mHasNext && mNext && env->CallBooleanMethod(itObj, mHasNext)) {
-                                        jobject stack = env->CallObjectMethod(itObj, mNext);
-                                        if (stack && !env->ExceptionCheck()) {
-                                            ArmorItem arm;
-                                            ParseItemStackHelper(env, mc, stack, arm);
-                                            tag.armor[3 - slot] = arm;
-                                            if (!arm.isEmpty) {
-                                                tag.items.push_back(arm);
-                                                armorParsed = true;
-                                            }
-                                            env->DeleteLocalRef(stack);
+                // Послотовый фоллбэк А: inventoryContainer / openContainer (слоты 5..8: 5=шлем, 6=нагрудник, 7=поножи, 8=ботинки)
+                for (int i = 0; i < 4; ++i) {
+                    if (tag.armor[i].isEmpty) {
+                        const char* contFields[] = { "inventoryContainer", "field_71069_bz", "bz", "openContainer", "field_71070_bA", "bA", "bv" };
+                        jobject contObj = nullptr;
+                        for (const char* cf : contFields) {
+                            jfieldID fCont = env->GetFieldID(cPlayer, cf, "Lnet/minecraft/inventory/Container;");
+                            if (!fCont) { env->ExceptionClear(); fCont = env->GetFieldID(cPlayer, cf, "Lapv;"); }
+                            if (fCont) {
+                                contObj = env->GetObjectField(pObj, fCont);
+                                if (env->ExceptionCheck()) { env->ExceptionClear(); contObj = nullptr; }
+                                if (contObj) break;
+                            } else env->ExceptionClear();
+                        }
+
+                        if (contObj) {
+                            jclass cCont = env->GetObjectClass(contObj);
+                            jmethodID mGetSlotCont = env->GetMethodID(cCont, "a", "(I)Laet;");
+                            if (!mGetSlotCont) { env->ExceptionClear(); mGetSlotCont = env->GetMethodID(cCont, "getSlot", "(I)Lnet/minecraft/inventory/Slot;"); }
+                            if (!mGetSlotCont) { env->ExceptionClear(); mGetSlotCont = env->GetMethodID(cCont, "func_75139_a", "(I)Lnet/minecraft/inventory/Slot;"); }
+                            if (mGetSlotCont) {
+                                jobject slotObj = env->CallObjectMethod(contObj, mGetSlotCont, 5 + i);
+                                if (slotObj && !env->ExceptionCheck()) {
+                                    jclass cSlotCls = env->GetObjectClass(slotObj);
+                                    jmethodID mGetStack = env->GetMethodID(cSlotCls, "d", "()Laip;");
+                                    if (!mGetStack) { env->ExceptionClear(); mGetStack = env->GetMethodID(cSlotCls, "getStack", "()Lnet/minecraft/item/ItemStack;"); }
+                                    if (!mGetStack) { env->ExceptionClear(); mGetStack = env->GetMethodID(cSlotCls, "func_75211_c", "()Lnet/minecraft/item/ItemStack;"); }
+                                    if (mGetStack) {
+                                        jobject slotStack = env->CallObjectMethod(slotObj, mGetStack);
+                                        if (slotStack && !env->ExceptionCheck()) {
+                                            ParseItemStackHelper(env, mc, slotStack, tag.armor[i]);
+                                            env->DeleteLocalRef(slotStack);
                                         } else env->ExceptionClear();
-                                        slot++;
                                     }
-                                    env->DeleteLocalRef(cIt);
-                                    env->DeleteLocalRef(itObj);
+                                    env->DeleteLocalRef(cSlotCls);
+                                    env->DeleteLocalRef(slotObj);
                                 } else env->ExceptionClear();
                             }
-                            env->DeleteLocalRef(cAIter);
-                            env->DeleteLocalRef(aIter);
-                        } else env->ExceptionClear();
+                            env->DeleteLocalRef(cCont);
+                            env->DeleteLocalRef(contObj);
+                        }
                     }
                 }
 
-                // Способ Б (резервный): Поиск inventory в иерархии классов игрока
-                if (!armorParsed) {
+                // Послотовый фоллбэк Б: inventory.armorInventory (индексы: 3=шлем, 2=нагрудник, 1=поножи, 0=ботинки)
+                bool needsMoreArmor = false;
+                for (int i = 0; i < 4; ++i) {
+                    if (tag.armor[i].isEmpty) { needsMoreArmor = true; break; }
+                }
+
+                if (needsMoreArmor) {
                     jfieldID fInv = nullptr;
                     jclass curCls = cPlayer;
                     while (curCls && !fInv) {
@@ -5381,15 +5367,15 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                                     jclass cAList = env->GetObjectClass(aList);
                                     jmethodID mAGet = env->GetMethodID(cAList, "get", "(I)Ljava/lang/Object;");
                                     if (mAGet) {
-                                        for (int slot = 0; slot < 4; ++slot) {
-                                            jobject stack = env->CallObjectMethod(aList, mAGet, slot);
-                                            if (stack && !env->ExceptionCheck()) {
-                                                ArmorItem arm;
-                                                ParseItemStackHelper(env, mc, stack, arm);
-                                                tag.armor[3 - slot] = arm;
-                                                if (!arm.isEmpty) tag.items.push_back(arm);
-                                                env->DeleteLocalRef(stack);
-                                            } else env->ExceptionClear();
+                                        for (int i = 0; i < 4; ++i) {
+                                            if (tag.armor[i].isEmpty) {
+                                                int armorIdx = 3 - i; // 3=HEAD, 2=CHEST, 1=LEGS, 0=FEET
+                                                jobject stack = env->CallObjectMethod(aList, mAGet, armorIdx);
+                                                if (stack && !env->ExceptionCheck()) {
+                                                    ParseItemStackHelper(env, mc, stack, tag.armor[i]);
+                                                    env->DeleteLocalRef(stack);
+                                                } else env->ExceptionClear();
+                                            }
                                         }
                                     }
                                     env->DeleteLocalRef(cAList);
@@ -5399,6 +5385,56 @@ void JVMBridge::QueryWorldEntities(JNIEnv* env) {
                             env->DeleteLocalRef(cInv);
                             env->DeleteLocalRef(pInv);
                         } else env->ExceptionClear();
+                    }
+                }
+
+                // Послотовый фоллбэк В: getArmorInventoryList() (aP)
+                needsMoreArmor = false;
+                for (int i = 0; i < 4; ++i) {
+                    if (tag.armor[i].isEmpty) { needsMoreArmor = true; break; }
+                }
+
+                if (needsMoreArmor) {
+                    jmethodID mArmorList = env->GetMethodID(cPlayer, "aP", "()Ljava/lang/Iterable;");
+                    if (!mArmorList) { env->ExceptionClear(); mArmorList = env->GetMethodID(cPlayer, "getArmorInventoryList", "()Ljava/lang/Iterable;"); }
+                    if (!mArmorList) { env->ExceptionClear(); mArmorList = env->GetMethodID(cPlayer, "func_184193_aE", "()Ljava/lang/Iterable;"); }
+                    if (mArmorList) {
+                        jobject aIter = env->CallObjectMethod(pObj, mArmorList);
+                        if (aIter && !env->ExceptionCheck()) {
+                            jclass cAIter = env->GetObjectClass(aIter);
+                            jmethodID mIterator = env->GetMethodID(cAIter, "iterator", "()Ljava/util/Iterator;");
+                            if (mIterator) {
+                                jobject itObj = env->CallObjectMethod(aIter, mIterator);
+                                if (itObj && !env->ExceptionCheck()) {
+                                    jclass cIt = env->GetObjectClass(itObj);
+                                    jmethodID mHasNext = env->GetMethodID(cIt, "hasNext", "()Z");
+                                    jmethodID mNext = env->GetMethodID(cIt, "next", "()Ljava/lang/Object;");
+                                    int aSlot = 0; // 0=FEET, 1=LEGS, 2=CHEST, 3=HEAD
+                                    while (aSlot < 4 && mHasNext && mNext && env->CallBooleanMethod(itObj, mHasNext)) {
+                                        jobject stack = env->CallObjectMethod(itObj, mNext);
+                                        if (stack && !env->ExceptionCheck()) {
+                                            int ourSlot = 3 - aSlot; // 0=HEAD, 1=CHEST, 2=LEGS, 3=FEET
+                                            if (tag.armor[ourSlot].isEmpty) {
+                                                ParseItemStackHelper(env, mc, stack, tag.armor[ourSlot]);
+                                            }
+                                            env->DeleteLocalRef(stack);
+                                        } else env->ExceptionClear();
+                                        aSlot++;
+                                    }
+                                    env->DeleteLocalRef(cIt);
+                                    env->DeleteLocalRef(itObj);
+                                } else env->ExceptionClear();
+                            }
+                            env->DeleteLocalRef(cAIter);
+                            env->DeleteLocalRef(aIter);
+                        } else env->ExceptionClear();
+                    }
+                }
+
+                // Заполняем tag.items всей надетой броней для обратной совместимости
+                for (int i = 0; i < 4; ++i) {
+                    if (!tag.armor[i].isEmpty) {
+                        tag.items.push_back(tag.armor[i]);
                     }
                 }
 

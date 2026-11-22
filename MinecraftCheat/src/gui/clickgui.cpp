@@ -1344,7 +1344,7 @@ void ClickGUI::DrawModuleSettings(ModuleBase* mod, float s) {
             DrawModernSliderFloat("Угол обзора (FOV)", "##aimFov", &aim->fov, 1.0f, 360.0f, "%.1f°", accent.primary, s);
             DrawModernSliderFloat("Дистанция (Range)", "##aimRange", &aim->range, 1.0f, 500.0f, "%.0f m", accent.primary, s);
             DrawModernSliderFloat("Предикт движения (Predict)", "##aimPredict", &aim->predict, 0.0f, 10.0f, "%.1f", accent.primary, s);
-            DrawModernSliderFloat("V-Predict (Вертикальный)", "##aimVPredict", &aim->vPredict, 0.0f, 2.0f, "%.2f", accent.primary, s);
+            DrawModernSliderFloat("V-Predict (Вертикальный)", "##aimVPredict", &aim->vPredict, 0.0f, 2.0f, "%.1f", accent.primary, s);
             DrawModernSliderFloat("Плавность (Smoothness)", "##aimSmooth", &aim->smoothness, 1.0f, 7.0f, "%.1f", accent.primary, s);
             ImGui::Spacing();
             CustomCheckbox("Отображать область FOV", "Отображает радиус наведения прицела", &aim->drawFov, accent.primaryVec, s);

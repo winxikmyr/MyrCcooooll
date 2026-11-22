@@ -1023,17 +1023,21 @@ void GUIManager::Render(HDC hdc) {
                     // Берем координаты цели (работает одинаково надежно и на стоячих, и на движущихся)
                     BloodAim::Point position{ bestTarget->pos.x, bestTarget->pos.y, bestTarget->pos.z };
 
-                    // Предикт движения: применяем только если пользователь настроил aim->predict > 0
-                    if (aim->predict > 0.01f || aim->vPredict > 0.01f) {
-                        const double horizontalLead = std::clamp(static_cast<double>(aim->predict) * 0.1, 0.0, 1.0);
-                        const double verticalLead = std::clamp(static_cast<double>(aim->vPredict) * 0.1, 0.0, 0.2);
+                    // Предикт движения (Predict) и вертикальная поправка (V-Predict)
+                    // 1. Predict (горизонтальное упреждение по движению цели):
+                    if (aim->predict > 0.01f) {
+                        const double leadMul = static_cast<double>(aim->predict) * 0.15;
                         double vx = (bestTarget->vel.x != 0.0) ? bestTarget->vel.x : (bestTarget->rawPos.x - bestTarget->prevTick.x);
-                        double vy = (bestTarget->vel.y != 0.0) ? bestTarget->vel.y : (bestTarget->rawPos.y - bestTarget->prevTick.y);
                         double vz = (bestTarget->vel.z != 0.0) ? bestTarget->vel.z : (bestTarget->rawPos.z - bestTarget->prevTick.z);
 
-                        position.x += vx * horizontalLead;
-                        position.z += vz * horizontalLead;
-                        position.y += std::clamp(vy * verticalLead, -0.25, 0.25);
+                        position.x += vx * leadMul;
+                        position.z += vz * leadMul;
+                    }
+
+                    // 2. V-Predict (вертикальная поправка высоты прицеливания):
+                    // Поднимает точку наводки выше при стрельбе на дистанцию или для компенсации баллистики
+                    if (aim->vPredict > 0.01f) {
+                        position.y += static_cast<double>(aim->vPredict) * 0.5;
                     }
 
                     const double bH = bestTarget->height > 0.5 ? bestTarget->height : 1.8;
@@ -1044,11 +1048,11 @@ void GUIManager::Render(HDC hdc) {
                         float finalYaw = facing.yaw;
                         float finalPitch = facing.pitch;
 
-                        // Сглаживание: 1 — мгновенная наводка (snap), 2..7 — плавная интерполяция
+                        // Сглаживание: 1.0 — мгновенная наводка (snap), 1.1..7.0 — плавная интерполяция
                         const float smooth = std::clamp(aim->smoothness, 1.0f, 7.0f);
                         if (smooth > 1.05f) {
                             float deltaYaw = static_cast<float>(BloodAim::Wrap(facing.yaw - yaw));
-                            float deltaPitch = facing.pitch - pitch; // Строго прямое расстояние по pitch без wrap!
+                            float deltaPitch = facing.pitch - pitch; // Прямая разность углов без скачков
 
                             finalYaw = yaw + (deltaYaw / smooth);
                             finalPitch = pitch + (deltaPitch / smooth);

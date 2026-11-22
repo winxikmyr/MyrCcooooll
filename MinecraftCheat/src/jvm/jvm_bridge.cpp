@@ -3230,15 +3230,17 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
 
     jobject player = env->GetObjectField(mc, fPlayer);
     env->DeleteLocalRef(cMC);
-    env->DeleteLocalRef(mc);
 
     if (!player || env->ExceptionCheck()) {
         env->ExceptionClear();
+        env->DeleteLocalRef(mc);
         for (int i = 0; i < 5; ++i) m_data.equipment[i].isEmpty = true;
         for (int i = 0; i < 9; ++i) m_data.hotbar[i].isEmpty = true;
         m_data.offHandItem.isEmpty = true;
         return;
     }
+
+    jobject mcInst = mc;
 
     jclass cPlayer = env->GetObjectClass(player);
 
@@ -3251,7 +3253,51 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
     if (!fExpLvl) { env->ExceptionClear(); fExpLvl = env->GetFieldID(cPlayer, "experienceLevel", "I"); }
     if (fExpLvl) m_data.experienceLevel = env->GetIntField(player, fExpLvl);
 
-    // Ищем inventory (aed.bv Laec;) через обход иерархии суперклассов bud -> bua -> aed
+    // 1. Прямой и 100% надежный способ для EntityLivingBase/EntityPlayerSP:
+    // EntityEquipmentSlot: 0: FEET (boots), 1: LEGS (leggings), 2: CHEST (chestplate), 3: HEAD (helmet)
+    // 0 = helmet (HEAD), 1 = chest (CHEST), 2 = legs (LEGS), 3 = boots (FEET)
+    bool armorReadViaSlot = false;
+    jobject cl = GetMinecraftClassLoader(env);
+    jclass cSlot = FindMCClass(env, cl, "vl");
+    if (!cSlot) cSlot = FindMCClass(env, cl, "net/minecraft/inventory/EntityEquipmentSlot");
+
+    if (cSlot) {
+        jmethodID mGetSlot = env->GetMethodID(cPlayer, "b", "(Lvl;)Laip;");
+        if (!mGetSlot) { env->ExceptionClear(); mGetSlot = env->GetMethodID(cPlayer, "getItemStackFromSlot", "(Lnet/minecraft/inventory/EntityEquipmentSlot;)Lnet/minecraft/item/ItemStack;"); }
+        if (!mGetSlot) { env->ExceptionClear(); mGetSlot = env->GetMethodID(cPlayer, "func_184582_a", "(Lnet/minecraft/inventory/EntityEquipmentSlot;)Lnet/minecraft/item/ItemStack;"); }
+
+        if (mGetSlot) {
+            jfieldID fSlots[4] = {
+                env->GetStaticFieldID(cSlot, "f", "Lvl;"), // 0: HEAD (helmet) -> slot 0
+                env->GetStaticFieldID(cSlot, "e", "Lvl;"), // 1: CHEST (chestplate) -> slot 1
+                env->GetStaticFieldID(cSlot, "d", "Lvl;"), // 2: LEGS (leggings) -> slot 2
+                env->GetStaticFieldID(cSlot, "c", "Lvl;")  // 3: FEET (boots) -> slot 3
+            };
+            const char* slotNames[4] = { "HEAD", "CHEST", "LEGS", "FEET" };
+            for (int s = 0; s < 4; ++s) {
+                if (!fSlots[s]) {
+                    env->ExceptionClear();
+                    fSlots[s] = env->GetStaticFieldID(cSlot, slotNames[s], "Lnet/minecraft/inventory/EntityEquipmentSlot;");
+                }
+                if (fSlots[s]) {
+                    jobject slotEnum = env->GetStaticObjectField(cSlot, fSlots[s]);
+                    if (slotEnum && !env->ExceptionCheck()) {
+                        jobject stack = env->CallObjectMethod(player, mGetSlot, slotEnum);
+                        if (stack && !env->ExceptionCheck()) {
+                            ParseItemStackHelper(env, mcInst, stack, m_data.equipment[s]);
+                            if (!m_data.equipment[s].isEmpty) armorReadViaSlot = true;
+                            env->DeleteLocalRef(stack);
+                        } else env->ExceptionClear();
+                        env->DeleteLocalRef(slotEnum);
+                    } else env->ExceptionClear();
+                }
+            }
+        }
+        env->DeleteLocalRef(cSlot);
+    }
+    if (cl) env->DeleteLocalRef(cl);
+
+    // 2. Ищем inventory (aed.bv Laec;) через обход иерархии суперклассов bud -> bua -> aed
     jfieldID fInv = nullptr;
     jclass curCls = cPlayer;
     while (curCls && !fInv) {
@@ -3273,7 +3319,9 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
         env->ExceptionClear();
         env->DeleteLocalRef(cPlayer);
         env->DeleteLocalRef(player);
-        for (int i = 0; i < 5; ++i) m_data.equipment[i].isEmpty = true;
+        if (!armorReadViaSlot) {
+            for (int i = 0; i < 5; ++i) m_data.equipment[i].isEmpty = true;
+        }
         for (int i = 0; i < 9; ++i) m_data.hotbar[i].isEmpty = true;
         m_data.offHandItem.isEmpty = true;
         return;
@@ -3285,7 +3333,9 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
 
     if (!inv || env->ExceptionCheck()) {
         env->ExceptionClear();
-        for (int i = 0; i < 5; ++i) m_data.equipment[i].isEmpty = true;
+        if (!armorReadViaSlot) {
+            for (int i = 0; i < 5; ++i) m_data.equipment[i].isEmpty = true;
+        }
         for (int i = 0; i < 9; ++i) m_data.hotbar[i].isEmpty = true;
         m_data.offHandItem.isEmpty = true;
         return;
@@ -3318,39 +3368,41 @@ void JVMBridge::QueryPlayerEquipment(JNIEnv* env) {
     jclass cList = env->FindClass("java/util/List");
     jmethodID mGetItem = cList ? env->GetMethodID(cList, "get", "(I)Ljava/lang/Object;") : nullptr;
 
-    jobject mcInst = GetMinecraftInstance(env);
-
-    // Броня: 0=Шлем, 1=Нагрудник, 2=Поножи, 3=Ботинки
-    if (fArmor && mGetItem) {
-        jobject armorList = env->GetObjectField(inv, fArmor);
-        if (armorList && !env->ExceptionCheck()) {
-            for (int i = 0; i < 4; ++i) {
-                int armorIdx = 3 - i; // 3=шлем, 2=нагрудник, 1=поножи, 0=ботинки
-                jobject is = env->CallObjectMethod(armorList, mGetItem, armorIdx);
-                ParseItemStackHelper(env, mcInst, is, m_data.equipment[i]);
-                if (is) env->DeleteLocalRef(is);
-
-                // Запасной вариант для надетой брони (если иконка не определилась или слетела)
-                if (!m_data.equipment[i].isEmpty && !m_data.equipment[i].hasIcon) {
-                    const char* fbSprite = nullptr;
-                    if (i == 0) fbSprite = "minecraft:items/leather_helmet";
-                    else if (i == 1) fbSprite = "minecraft:items/leather_chestplate";
-                    else if (i == 2) fbSprite = "minecraft:items/leather_leggings";
-                    else if (i == 3) fbSprite = "minecraft:items/leather_boots";
-                    if (fbSprite) {
-                        m_data.equipment[i].hasIcon = QuerySpriteByName(env, mcInst, fbSprite,
-                            m_data.equipment[i].minU, m_data.equipment[i].maxU,
-                            m_data.equipment[i].minV, m_data.equipment[i].maxV);
-                    }
+    // Броня: если не прочитана через EntityEquipmentSlot, читаем через armorInventory
+    if (!armorReadViaSlot) {
+        if (fArmor && mGetItem) {
+            jobject armorList = env->GetObjectField(inv, fArmor);
+            if (armorList && !env->ExceptionCheck()) {
+                for (int i = 0; i < 4; ++i) {
+                    int armorIdx = 3 - i; // 3=шлем, 2=нагрудник, 1=поножи, 0=ботинки
+                    jobject is = env->CallObjectMethod(armorList, mGetItem, armorIdx);
+                    ParseItemStackHelper(env, mcInst, is, m_data.equipment[i]);
+                    if (is) env->DeleteLocalRef(is);
                 }
+                env->DeleteLocalRef(armorList);
+            } else {
+                env->ExceptionClear();
+                for (int i = 0; i < 4; ++i) m_data.equipment[i].isEmpty = true;
             }
-            env->DeleteLocalRef(armorList);
         } else {
-            env->ExceptionClear();
             for (int i = 0; i < 4; ++i) m_data.equipment[i].isEmpty = true;
         }
-    } else {
-        for (int i = 0; i < 4; ++i) m_data.equipment[i].isEmpty = true;
+    }
+
+    // Запасной вариант UV спрайта для надетой брони (если иконка не определилась или слетела)
+    for (int i = 0; i < 4; ++i) {
+        if (!m_data.equipment[i].isEmpty && !m_data.equipment[i].hasIcon) {
+            const char* fbSprite = nullptr;
+            if (i == 0) fbSprite = "minecraft:items/leather_helmet";
+            else if (i == 1) fbSprite = "minecraft:items/leather_chestplate";
+            else if (i == 2) fbSprite = "minecraft:items/leather_leggings";
+            else if (i == 3) fbSprite = "minecraft:items/leather_boots";
+            if (fbSprite) {
+                m_data.equipment[i].hasIcon = QuerySpriteByName(env, mcInst, fbSprite,
+                    m_data.equipment[i].minU, m_data.equipment[i].maxU,
+                    m_data.equipment[i].minV, m_data.equipment[i].maxV);
+            }
+        }
     }
 
     // Предмет в руке: equipment[4]
